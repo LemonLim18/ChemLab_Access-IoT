@@ -1,0 +1,5 @@
+.env
+.venv
+fridge_model/
+csv_files/
+# *.csv

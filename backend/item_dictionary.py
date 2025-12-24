@@ -1,0 +1,30 @@
+# English → Malay keyword mapping
+# Keep this small and grow over time
+
+EN_MS_MAP = {
+    "chicken": ["ayam"],
+    "drumstick": ["paha ayam"],
+    "wing": ["kepak ayam"],
+    "beef": ["daging lembu"],
+    "goat": ["kambing"],
+    "mutton": ["kambing biri-biri", "mutton"],
+    "fish": ["ikan"],
+    "prawn": ["udang"],
+    "shrimp": ["udang"],
+    "squid": ["sotong"],
+    "crab": ["ketam"],
+    "egg": ["telur"],
+    "milk": ["susu"],
+    "oil": ["minyak"],
+    "rice": ["beras", "nasi"],
+    "onion": ["bawang"],
+    "garlic": ["bawang putih"],
+    "chili": ["cili"],
+    "banana": ["pisang"],
+    "watermelon": ["tembikai"],
+    "apple": ["epal"],
+    "orange": ["oren"],
+    "potato": ["ubi kentang"],
+    "tomato": ["tomato"],
+    "cabbage": ["kubis"],
+}
