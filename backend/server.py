@@ -1,9 +1,12 @@
 # TO START THE SERVER: 
 # uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 # backend_app.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from dotenv import load_dotenv
 import os
+import json
+import asyncio
+import paho.mqtt.client as mqtt
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,14 +25,135 @@ app = FastAPI(title="Price Recommender API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://192.168.1.117:5173"
-    ],
+    allow_origins=["*"], # Broaden for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- MQTT & WebSocket Integration ---
+
+# Shared state for real-time sensor data
+latest_sensor_data = {
+    "temperature": 0.0,
+    "humidity": 0,
+    "voc": 0,
+    "doorOpen": False,
+    "moistureAlert": False,
+    "latest_image_url": None,
+    "lastCaptureTime": None,
+    "lastUpdated": datetime.now().isoformat()
+}
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        # Send latest data immediately upon connection
+        await websocket.send_json({"type": "sensor_update", "data": latest_sensor_data})
+        if latest_sensor_data["latest_image_url"]:
+            await websocket.send_json({
+                "type": "capture_update", 
+                "data": {"image_url": latest_sensor_data["latest_image_url"]}
+            })
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                pass
+
+manager = ConnectionManager()
+
+# MQTT Config
+MQTT_BROKER = "34.122.10.29"
+MQTT_PORT = 1883
+MQTT_USER = "smartfridge"
+MQTT_PASS = "password"
+
+def on_connect(client, userdata, flags, rc):
+    print(f"Connected to MQTT Broker with result code {rc}")
+    client.subscribe("fridge/#")
+
+main_loop = None
+
+def on_message(client, userdata, msg):
+    global latest_sensor_data, main_loop
+    try:
+        payload = json.loads(msg.payload.decode())
+        topic = msg.topic
+        
+        update_broadcast = False
+        message_to_send = None
+
+        if topic == "fridge/telemetry":
+            latest_sensor_data["temperature"] = payload.get("temperature_celsius", latest_sensor_data["temperature"])
+            latest_sensor_data["humidity"] = payload.get("humidity_percent", latest_sensor_data["humidity"])
+            latest_sensor_data["voc"] = payload.get("voc_ppm", latest_sensor_data["voc"])
+            latest_sensor_data["lastUpdated"] = datetime.now().isoformat()
+            message_to_send = {"type": "sensor_update", "data": latest_sensor_data}
+            update_broadcast = True
+        
+        elif topic == "fridge/door":
+            state = payload.get("state", "closed")
+            latest_sensor_data["doorOpen"] = (state.lower() == "open")
+            latest_sensor_data["lastUpdated"] = datetime.now().isoformat()
+            message_to_send = {"type": "sensor_update", "data": latest_sensor_data}
+            update_broadcast = True
+            
+        elif topic == "fridge/capture":
+            img_url = payload.get("image_url")
+            print(f"[MQTT] Received new fridge snapshot: {img_url}")
+            latest_sensor_data["latest_image_url"] = img_url
+            latest_sensor_data["lastCaptureTime"] = datetime.now().isoformat()
+            message_to_send = {
+                "type": "capture_update",
+                "data": {
+                    "image_url": img_url,
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+            update_broadcast = True
+
+        if update_broadcast and message_to_send and main_loop:
+            asyncio.run_coroutine_threadsafe(manager.broadcast(message_to_send), main_loop)
+
+    except Exception as e:
+        print(f"Error processing MQTT message: {e}")
+
+mqtt_client = mqtt.Client()
+mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+
+@app.on_event("startup")
+async def startup_event():
+    global main_loop
+    main_loop = asyncio.get_running_loop()
+    mqtt_client.connect_async(MQTT_BROKER, MQTT_PORT, 60)
+    mqtt_client.loop_start()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    mqtt_client.loop_stop()
+    mqtt_client.disconnect()
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 
 # Class is something similar to the interface in TypeScript
 class RecommendRequest(BaseModel):

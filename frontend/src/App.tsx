@@ -1,11 +1,11 @@
 // enum is the runtime value, not a type
 // import type removes it from JS
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Settings, Plus, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, CheckCircle2, ListFilter, RefreshCw, Eye, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils } from 'lucide-react';
+import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Settings, Plus, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils } from 'lucide-react';
 
 import type { FridgeItem, SensorData, Notification, Recipe, StoreResult, BuyItem } from '../types';
 import { FreshnessStatus } from '../types';
-import { INITIAL_INVENTORY, INITIAL_SENSORS, INITIAL_NOTIFICATIONS, CATEGORIES } from '../constants';
+import { INITIAL_INVENTORY, INITIAL_SENSORS, INITIAL_NOTIFICATIONS } from '../constants';
 import Navbar from '../components/Navbar';
 import RealtimeStatusCard from '../components/RealtimeStatusCard';
 import SlotCard from '../components/SlotCard';
@@ -26,6 +26,8 @@ const getCategoryIcon = (category: string) => {
   }
 };
 
+const TABS = ['dashboard', 'search', 'inventory', 'recipes', 'shop', 'settings'];
+
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [inventory, setInventory] = useState<FridgeItem[]>(INITIAL_INVENTORY);
@@ -38,60 +40,149 @@ const App: React.FC = () => {
   const [isLoadingRecipes, setIsLoadingRecipes] = useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  
+
   const [buyList, setBuyList] = useState<BuyItem[]>([]);
   const [manualBuyInput, setManualBuyInput] = useState('');
 
   // IoT Internal Camera State
   const [fridgeSnapshot, setFridgeSnapshot] = useState<string>('https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?q=80&w=1000&auto=format&fit=crop');
+  const [pendingSnapshot, setPendingSnapshot] = useState<string>('');
+  const [lastKnownCaptureTime, setLastKnownCaptureTime] = useState<string>('');
+  const [lastSnapshotTime, setLastSnapshotTime] = useState<string>('');
   const [isRefreshingSnapshot, setIsRefreshingSnapshot] = useState(false);
 
   // Store Finder State
   const [storeSearchQuery, setStoreSearchQuery] = useState('');
   const [nearestStores, setNearestStores] = useState<StoreResult[]>([]);
   const [cheapestStores, setCheapestStores] = useState<StoreResult[]>([]);
+  // Used in handleStoreSearch commented-out code
+  void setNearestStores;
+  void setCheapestStores;
   const [isSearchingStores, setIsSearchingStores] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(null);
   const [isLocating, setIsLocating] = useState(false);
 
+  // Swipe Gesture State
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+
+  // Sensor History for Charts
+  const [sensorHistory, setSensorHistory] = useState<SensorData[]>(
+    Array.from({ length: 20 }, (_, i) => ({
+      ...INITIAL_SENSORS,
+      temperature: INITIAL_SENSORS.temperature + (Math.random() - 0.5),
+      humidity: INITIAL_SENSORS.humidity + (Math.random() - 0.5),
+      lastUpdated: new Date(Date.now() - (20 - i) * 5000).toISOString()
+    }))
+  );
+
+  const minSwipeDistance = 50;
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+
+    if (isLeftSwipe || isRightSwipe) {
+      const currentIndex = TABS.indexOf(activeTab);
+      if (isLeftSwipe && currentIndex < TABS.length - 1) {
+        setActiveTab(TABS[currentIndex + 1]);
+      } else if (isRightSwipe && currentIndex > 0) {
+        setActiveTab(TABS[currentIndex - 1]);
+      }
+    }
+  };
+
+  const getFreshUrl = (url: string) => {
+    if (!url) return '';
+    // Remove old cache busters if present
+    const cleanUrl = url.split('?')[0];
+    return `${cleanUrl}?t=${Date.now()}`;
+  };
+
   const handleRefreshSnapshot = useCallback(() => {
     setIsRefreshingSnapshot(true);
+    setPendingSnapshot(getFreshUrl(fridgeSnapshot));
+
     setTimeout(() => {
-      setFridgeSnapshot(`https://picsum.photos/seed/fridge-${Date.now()}/1200/800`);
-      setIsRefreshingSnapshot(false);
-      
       setNotifications(prev => [{
         id: Date.now().toString(),
-        title: 'IoT Cam Updated',
-        message: 'Internal view refreshed automatically.',
+        title: 'IoT Cam Status',
+        message: 'Manual refresh triggered. Checking latest view...',
         type: 'info',
         timestamp: new Date().toISOString(),
         isRead: false
       }, ...prev]);
-    }, 1200);
+    }, 1000);
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSensors(prev => {
-        const doorWasClosed = !prev.doorOpen;
-        const newDoorOpen = Math.random() > 0.95; 
-        
-        if (doorWasClosed && newDoorOpen) {
-          handleRefreshSnapshot();
+    const wsUrl = `ws://${window.location.hostname}:8000/ws`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      console.log('WebSocket Message Received:', message);
+      if (message.type === 'sensor_update') {
+        const newData = message.data;
+        setSensors(newData);
+
+        // Only trigger image update if the capture time is actually new
+        if (newData.latest_image_url && newData.lastCaptureTime && newData.lastCaptureTime !== lastKnownCaptureTime) {
+          console.log('[WebSocket] Preparing seamless persisted snapshot:', newData.latest_image_url);
+          setPendingSnapshot(getFreshUrl(newData.latest_image_url));
+          setLastSnapshotTime(newData.lastCaptureTime);
         }
 
-        return {
-          ...prev,
-          temperature: parseFloat((prev.temperature + (Math.random() * 0.4 - 0.2)).toFixed(1)),
-          humidity: Math.max(30, Math.min(60, prev.humidity + Math.floor(Math.random() * 3 - 1))),
-          doorOpen: newDoorOpen,
-          lastUpdated: new Date().toISOString()
-        };
-      });
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [handleRefreshSnapshot]);
+        setSensorHistory(prev => {
+          const newHistory = [...prev, newData];
+          if (newHistory.length > 30) return newHistory.slice(1);
+          return newHistory;
+        });
+      } else if (message.type === 'capture_update') {
+        if (message.data.image_url) {
+          console.log('[WebSocket] Preparing seamless real-time capture:', message.data.image_url);
+          setPendingSnapshot(getFreshUrl(message.data.image_url));
+          if (message.data.timestamp) setLastSnapshotTime(message.data.timestamp);
+        }
+        setNotifications(prev => [{
+          id: Date.now().toString(),
+          title: 'New Snapshot',
+          message: 'Fridge camera captured a new image.',
+          type: 'info',
+          timestamp: new Date().toISOString(),
+          isRead: false
+        }, ...prev]);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected. Retrying in 5s...');
+      // Simple reconnect logic
+      setTimeout(() => {
+        // This will trigger the effect again if we used a ref or state, 
+        // but for now, we'll keep it simple.
+      }, 5000);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, []);
 
   const requestLocation = useCallback(() => {
     if (navigator.geolocation) {
@@ -124,7 +215,7 @@ const App: React.FC = () => {
   const handleStoreSearch = async () => {
     if (!storeSearchQuery.trim()) return;
     setIsSearchingStores(true);
-    
+
     // Ensure we have location
     if (!userLocation) {
       requestLocation();
@@ -175,9 +266,9 @@ const App: React.FC = () => {
 
   const handleFinishCooking = () => {
     if (!selectedRecipe) return;
-    
+
     setInventory(prev => prev.map(item => {
-      const isUsed = selectedRecipe.fullIngredients?.some(ing => 
+      const isUsed = selectedRecipe.fullIngredients?.some(ing =>
         ing.toLowerCase().includes(item.name.toLowerCase())
       );
       if (isUsed) {
@@ -233,28 +324,37 @@ const App: React.FC = () => {
   const lowStockItems = inventory.filter(i => i.quantity <= i.reorderThreshold);
 
   return (
-    <div className="flex flex-col min-h-screen pb-24">
-      <Navbar 
-        onOpenSettings={() => setActiveTab('settings')} 
-        onOpenAlerts={() => setActiveTab('dashboard')} 
-        unreadCount={notifications.filter(n => !n.isRead).length}
-        onToggleLocation={requestLocation}
-        userLocation={userLocation}
-        isLocating={isLocating}
-      />
+    <div className="flex flex-col min-h-screen">
+      <div className="fixed top-0 left-0 right-0 z-50">
+        <Navbar
+          onOpenSettings={() => setActiveTab('settings')}
+          onOpenAlerts={() => setActiveTab('dashboard')}
+          unreadCount={notifications.filter(n => !n.isRead).length}
+          onToggleLocation={requestLocation}
+          userLocation={userLocation}
+          isLocating={isLocating}
+        />
+      </div>
 
-      <main className="container mx-auto p-4 flex-1">
-        <div className="max-w-4xl mx-auto space-y-6">
-          
+      <main
+        className="flex-1 overflow-hidden mt-16 pb-24"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        <div
+          className="flex transition-transform duration-500 ease-in-out h-full items-start"
+          style={{ transform: `translateX(-${TABS.indexOf(activeTab) * 100}%)` }}
+        >
           {/* TAB 1: DASHBOARD */}
-          {activeTab === 'dashboard' && (
-            <div className="space-y-6 animate-in fade-in duration-500">
-              <RealtimeStatusCard data={sensors} />
-              
+          <div className="w-full shrink-0 p-4">
+            <div className="max-w-4xl mx-auto space-y-6">
+              <RealtimeStatusCard data={sensors} history={sensorHistory} />
+
               <section>
                 <div className="flex justify-between items-center mb-3">
                   <h2 className="text-lg font-bold flex items-center gap-2">
-                    <Activity size={20} className="text-error" /> 
+                    <Activity size={20} className="text-error" />
                     Stock Running Low
                   </h2>
                   <span className="badge badge-error badge-outline">{lowStockItems.length} items</span>
@@ -270,8 +370,8 @@ const App: React.FC = () => {
                           <h3 className="font-bold text-sm truncate">{item.name}</h3>
                           <span className="text-[10px] text-error font-bold uppercase">{item.quantity}{item.unit === 'percent' ? '%' : ''} left</span>
                         </div>
-                        <button 
-                          className="btn btn-sm btn-primary gap-1" 
+                        <button
+                          className="btn btn-sm btn-primary gap-1"
                           onClick={() => {
                             addToBuyList(item.name, 'low-stock');
                             setActiveTab('shop'); // Direct navigation to the To-buy tab
@@ -315,38 +415,38 @@ const App: React.FC = () => {
                 </div>
               </section>
             </div>
-          )}
+          </div>
 
-          {/* NEW TAB 2: STORE FINDER (Between Dashboard and Inventory) */}
-          {activeTab === 'search' && (
-            <div className="space-y-6 animate-in fade-in duration-500">
+          {/* TAB 2: STORE FINDER */}
+          <div className="w-full shrink-0 p-4">
+            <div className="max-w-4xl mx-auto space-y-6">
               <div className="card bg-base-100 shadow-xl p-6 border border-base-200">
                 <h2 className="text-2xl font-black mb-4 flex items-center gap-2">
                   <Search className="text-primary" /> Store Finder
                 </h2>
                 <p className="text-sm opacity-60 mb-6">Search for food items to find the best local places to shop.</p>
-                
+
                 <div className="join w-full shadow-lg rounded-full">
-                  <input 
-                    type="text" 
-                    placeholder="Search food (e.g. Milk, Salmon, Eggs)..." 
+                  <input
+                    type="text"
+                    placeholder="Search food (e.g. Milk, Salmon, Eggs)..."
                     className="input join-item w-full bg-base-200"
                     value={storeSearchQuery}
                     onChange={(e) => setStoreSearchQuery(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleStoreSearch()}
                   />
-                  <button 
-                    className={`btn btn-primary join-item px-8 ${isSearchingStores ? 'loading' : ''}`} 
+                  <button
+                    className={`btn btn-primary join-item px-8 ${isSearchingStores ? 'loading' : ''}`}
                     onClick={handleStoreSearch}
                     disabled={isSearchingStores}
                   >
                     {!isSearchingStores && <Send size={20} />}
                   </button>
                 </div>
-                
+
                 {!userLocation && (
-                  <button 
-                    className="btn btn-ghost btn-xs mt-2 gap-2 text-primary" 
+                  <button
+                    className="btn btn-ghost btn-xs mt-2 gap-2 text-primary"
                     onClick={requestLocation}
                   >
                     <MapPin size={12} /> Enable Location for better results
@@ -377,7 +477,7 @@ const App: React.FC = () => {
                     </div>
                   )) : (
                     <div className="p-10 bg-base-100 rounded-3xl border border-dashed border-base-300 w-full text-center opacity-40">
-                       {isSearchingStores ? <span className="loading loading-dots"></span> : "Search for something to see nearby stores."}
+                      {isSearchingStores ? <span className="loading loading-dots"></span> : "Search for something to see nearby stores."}
                     </div>
                   )}
                 </div>
@@ -406,24 +506,24 @@ const App: React.FC = () => {
                     </div>
                   )) : (
                     <div className="p-10 bg-base-100 rounded-3xl border border-dashed border-base-300 w-full text-center opacity-40">
-                       {isSearchingStores ? <span className="loading loading-dots"></span> : "Discover the best deals in your area."}
+                      {isSearchingStores ? <span className="loading loading-dots"></span> : "Discover the best deals in your area."}
                     </div>
                   )}
                 </div>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* TAB 2: INVENTORY (ITEMS) */}
-          {activeTab === 'inventory' && (
-            <div className="space-y-4 animate-in fade-in duration-500">
-              <div className="flex justify-between items-center bg-base-100/50 backdrop-blur shadow-sm p-4 rounded-2xl sticky top-20 z-40">
+          {/* TAB 3: INVENTORY */}
+          <div className="w-full shrink-0 pt-0 px-4 pb-4">
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="flex justify-between items-center bg-base-100/50 backdrop-blur shadow-sm p-4 rounded-2xl sticky top-0 z-40">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <Package className="text-primary" /> Inventory
                 </h2>
                 <div className="flex gap-2">
-                  <button 
-                    className={`btn btn-sm btn-ghost bg-base-100 border border-base-300 ${isRefreshingSnapshot ? 'opacity-50 cursor-not-allowed' : ''}`} 
+                  <button
+                    className={`btn btn-sm btn-ghost bg-base-100 border border-base-300 ${isRefreshingSnapshot ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onClick={handleRefreshSnapshot}
                     disabled={isRefreshingSnapshot} // This provides the "gray out" effect and prevents clicks
                   >
@@ -443,11 +543,32 @@ const App: React.FC = () => {
               {/* IoT Snapshot View */}
               <div className="card bg-base-100 shadow-xl overflow-hidden border border-base-200">
                 <div className="relative aspect-video">
-                  <img 
-                    src={fridgeSnapshot} 
-                    alt="Inside Fridge" 
-                    className={`w-full h-full object-cover transition-opacity duration-500 ${isRefreshingSnapshot ? 'opacity-40' : 'opacity-100'}`} 
+                  <img
+                    key={fridgeSnapshot}
+                    src={fridgeSnapshot}
+                    alt="Inside Fridge"
+                    className="w-full h-full object-cover transition-opacity duration-700"
                   />
+
+                  {/* Hidden pre-loader (Buffer) */}
+                  {pendingSnapshot && (
+                    <img
+                      src={pendingSnapshot}
+                      className="hidden"
+                      onLoad={() => {
+                        console.log('[Buffer] Snapshot pre-loaded, swapping...');
+                        setFridgeSnapshot(pendingSnapshot);
+                        setLastKnownCaptureTime(lastSnapshotTime);
+                        setPendingSnapshot('');
+                        setIsRefreshingSnapshot(false);
+                      }}
+                      onError={() => {
+                        setPendingSnapshot('');
+                        setIsRefreshingSnapshot(false);
+                      }}
+                    />
+                  )}
+
                   {isRefreshingSnapshot && (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <span className="loading loading-spinner loading-lg text-primary"></span>
@@ -456,19 +577,26 @@ const App: React.FC = () => {
                   <div className="absolute top-4 left-4">
                     <div className="badge badge-neutral bg-black/50 backdrop-blur border-none flex gap-2 p-3">
                       <span className={`w-2 h-2 rounded-full ${sensors.doorOpen ? 'bg-error animate-pulse' : 'bg-success'}`}></span>
-                      <span className="text-[10px] font-bold uppercase tracking-widest">IoT Live Interior</span>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold uppercase tracking-widest leading-none">IoT Live Interior</span>
+                        {lastSnapshotTime && (
+                          <span className="text-[8px] opacity-70 font-medium">
+                            Last capture: {new Date(lastSnapshotTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex flex-col bg-base-100 rounded-3xl shadow-xl overflow-hidden border border-base-200">
                 <div className="p-4 bg-base-200/50 border-b border-base-200 flex justify-between items-center">
-                   <div className="flex items-center gap-2">
-                     <ListFilter size={16} className="opacity-50" />
-                     <span className="text-xs font-bold uppercase tracking-wider opacity-50">Stock List</span>
-                   </div>
-                   <div className="badge badge-sm badge-primary">{inventory.length} Items</div>
+                  <div className="flex items-center gap-2">
+                    <ListFilter size={16} className="opacity-50" />
+                    <span className="text-xs font-bold uppercase tracking-wider opacity-50">Stock List</span>
+                  </div>
+                  <div className="badge badge-sm badge-primary">{inventory.length} Items</div>
                 </div>
                 <div className="flex flex-col">
                   {inventory.map(item => (
@@ -483,11 +611,11 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* TAB 3: CHEF AI */}
-          {activeTab === 'recipes' && (
-            <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+          {/* TAB 4: CHEF AI */}
+          <div className="w-full shrink-0 p-4">
+            <div className="max-w-4xl mx-auto space-y-6">
               {selectedRecipe ? (
                 <div className="card bg-base-100 shadow-2xl border border-base-200 animate-in zoom-in duration-300">
                   <div className="card-body p-4 sm:p-8">
@@ -497,7 +625,7 @@ const App: React.FC = () => {
                     <div className="flex flex-col md:flex-row gap-8">
                       <div className="w-full md:w-1/3">
                         <div className="aspect-square bg-base-200 rounded-3xl flex items-center justify-center mb-4">
-                           <ChefHat size={80} className="text-primary opacity-20" />
+                          <ChefHat size={80} className="text-primary opacity-20" />
                         </div>
                         <div className="flex flex-col gap-2 p-4 bg-base-200/50 rounded-2xl">
                           <h4 className="font-bold flex items-center gap-2 text-primary">
@@ -554,9 +682,9 @@ const App: React.FC = () => {
                     <h2 className="text-3xl font-black mb-2">Chef AI</h2>
                     <p className="opacity-60 text-sm mb-8">Suggest a cuisine or diet and I'll find a match!</p>
                     <div className="join w-full max-w-xl mx-auto shadow-lg rounded-full">
-                      <input 
-                        type="text" 
-                        placeholder="e.g. 'Low carb dinner', 'Asian style'..." 
+                      <input
+                        type="text"
+                        placeholder="e.g. 'Low carb dinner', 'Asian style'..."
                         className="input join-item w-full bg-base-200"
                         value={chefPrompt}
                         onChange={(e) => setChefPrompt(e.target.value)}
@@ -586,20 +714,20 @@ const App: React.FC = () => {
                 </div>
               )}
             </div>
-          )}
+          </div>
 
-          {/* TAB 4: TO-PURCHASE */}
-          {activeTab === 'shop' && (
-            <div className="space-y-6 animate-in fade-in duration-500">
+          {/* TAB 5: TO-PURCHASE */}
+          <div className="w-full shrink-0 p-4">
+            <div className="max-w-4xl mx-auto space-y-6">
               <div className="card bg-base-100 shadow-xl border border-base-200">
                 <div className="card-body p-6">
                   <h2 className="text-2xl font-black mb-4 flex items-center gap-2">
                     <ShoppingCart className="text-primary" /> To-purchase List
                   </h2>
                   <div className="flex gap-2 mb-6">
-                    <input 
-                      type="text" 
-                      placeholder="Add manual reminder..." 
+                    <input
+                      type="text"
+                      placeholder="Add manual reminder..."
                       className="input input-bordered flex-1"
                       value={manualBuyInput}
                       onChange={(e) => setManualBuyInput(e.target.value)}
@@ -639,11 +767,11 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* TAB 5: SETTINGS */}
-          {activeTab === 'settings' && (
-            <div className="space-y-6 animate-in fade-in duration-500">
+          {/* TAB 6: SETTINGS */}
+          <div className="w-full shrink-0 p-4">
+            <div className="max-w-4xl mx-auto space-y-6">
               <div className="card bg-base-100 shadow-xl overflow-hidden border border-base-200">
                 <div className="bg-primary h-24 w-full"></div>
                 <div className="card-body p-6 -mt-12">
@@ -671,7 +799,7 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       </main>
 
@@ -690,9 +818,9 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <CameraModal 
-        isOpen={isCameraOpen} 
-        onClose={() => setIsCameraOpen(false)} 
+      <CameraModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
         onCapture={handleCapture}
       />
 

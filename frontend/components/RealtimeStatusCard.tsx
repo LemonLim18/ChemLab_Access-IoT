@@ -1,17 +1,15 @@
 
 import React from 'react';
-import { Thermometer, Droplets, Wind, DoorOpen, DoorClosed, AlertTriangle } from 'lucide-react';
+import { Thermometer, Droplets, Snowflake, DoorOpen, DoorClosed, AlertTriangle } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import type { SensorData } from '../types';
 
 interface RealtimeStatusCardProps {
   data: SensorData;
+  history: SensorData[];
 }
 
-// Simulated trend data
-const mockTrend = Array.from({ length: 20 }, (_, i) => ({ val: 3 + Math.random() * 2 }));
-
-const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data }) => {
+const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }) => {
   const getTempBadge = (t: number) => {
     if (t > 7) return 'badge-error';
     if (t > 5) return 'badge-warning';
@@ -32,15 +30,16 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data }) => {
             <div className="flex items-center justify-between">
               <Thermometer size={18} className="text-primary" />
               <span className={`badge badge-sm ${getTempBadge(data.temperature)}`}>
-                {data.temperature > 5 ? 'Check' : 'Stable'}
+                {/* Modify the lower compartment temperature range */}
+                {data.temperature > 7 ? 'Unsafe' : data.temperature > 4 ? 'Warning' : 'Optimal'}
               </span>
             </div>
             <div className="text-2xl font-bold">{data.temperature}°C</div>
-            <div className="text-xs text-base-content/50">Fridge Main</div>
+            <div className="text-xs text-base-content/50">Fridge Temperature</div>
             <div className="h-8 w-full mt-1">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={mockTrend}>
-                  <Line type="monotone" dataKey="val" stroke="#641ae6" strokeWidth={2} dot={false} />
+                <LineChart data={history}>
+                  <Line type="monotone" dataKey="temperature" stroke="#641ae6" strokeWidth={2} dot={false} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -53,26 +52,28 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data }) => {
               <span className="badge badge-sm badge-success">OK</span>
             </div>
             <div className="text-2xl font-bold">{data.humidity}%</div>
-            <div className="text-xs text-base-content/50">Crisper Drawer</div>
+            <div className="text-xs text-base-content/50">Air Humidity</div>
             <div className="h-8 w-full mt-1">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={mockTrend}>
-                  <Line type="monotone" dataKey="val" stroke="#00d7c0" strokeWidth={2} dot={false} />
+                <LineChart data={history}>
+                  <Line type="monotone" dataKey="humidity" stroke="#00d7c0" strokeWidth={2} dot={false} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* VOC/Gas */}
-          <div className="flex flex-col gap-1 p-3 rounded-2xl bg-base-200/50">
+          {/* Defreezing Anomaly */}
+          <div className={`flex flex-col gap-1 p-3 rounded-2xl transition-colors ${data.temperature > 7 ? 'bg-error/10 border border-error/20' : 'bg-base-200/50'}`}>
             <div className="flex items-center justify-between">
-              <Wind size={18} className="text-secondary" />
-              <span className={`badge badge-sm ${data.voc > 300 ? 'badge-error' : 'badge-success'}`}>
-                {data.voc > 300 ? 'Alert' : 'Fresh'}
-              </span>
+              <Snowflake size={18} className={data.temperature > 7 ? "text-error" : "text-primary"} />
+              {data.temperature > 7 && (
+                <span className="animate-pulse text-[10px] text-error font-bold uppercase">
+                  {data.temperature > 10 ? 'Critical' : 'Warning'}
+                </span>
+              )}
             </div>
-            <div className="text-2xl font-bold">{data.voc} ppm</div>
-            <div className="text-xs text-base-content/50">Air Quality</div>
+            <div className="text-xl font-bold">{data.temperature > 7 ? 'Defrozen' : 'Frozen'}</div>
+            <div className="text-xs text-base-content/50">Frost Monitor</div>
           </div>
 
           {/* Door Status */}

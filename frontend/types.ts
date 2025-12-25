@@ -27,6 +27,8 @@ export interface SensorData {
   voc: number; // MQ2/VOC level
   doorOpen: boolean;
   moistureAlert: boolean;
+  latest_image_url?: string;
+  lastCaptureTime?: string;
   lastUpdated: string;
 }
 

@@ -14,10 +14,15 @@ from matcher import match_items
 
 from hargapedia_cli import download_and_aggregate
 from location import get_user_location
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # ================= CONFIG =================
 # Preferred: set your Geoapify API key in environment variable GEOAPIFY_API_KEY
-GEOAPIFY_API_KEY = os.getenv("GEOAPIFY_API_KEY", "b69735c7054048e3823a86c2dc65cba5")
+# GEOAPIFY_API_KEY = os.getenv("GEOAPIFY_API_KEY")
+GEOAPIFY_API_KEY = os.environ.get("GEOAPIFY_API_KEY")
 GEOCACHE_FILE = os.path.join("csv_files", "geocache.json")
 GEOCACHE_TTL_SECONDS = 60 * 60 * 24 * 365  # not used for expiry here, but reserved
 
