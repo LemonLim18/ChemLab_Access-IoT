@@ -31,7 +31,7 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }
               <Thermometer size={18} className="text-primary" />
               <span className={`badge badge-sm ${getTempBadge(data.temperature)}`}>
                 {/* Modify the lower compartment temperature range */}
-                {data.temperature > 7 ? 'Unsafe' : data.temperature > 4 ? 'Warning' : 'Optimal'}
+                {data.temperature > 7 ? 'Unsafe' : data.temperature > 4 ? 'Alert' : 'Optimal'}
               </span>
             </div>
             <div className="text-2xl font-bold">{data.temperature}°C</div>

@@ -47,9 +47,10 @@ const App: React.FC = () => {
   // IoT Internal Camera State
   const [fridgeSnapshot, setFridgeSnapshot] = useState<string>('https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?q=80&w=1000&auto=format&fit=crop');
   const [pendingSnapshot, setPendingSnapshot] = useState<string>('');
-  const [lastKnownCaptureTime, setLastKnownCaptureTime] = useState<string>('');
+  const lastKnownCaptureTime = React.useRef<string>('');
   const [lastSnapshotTime, setLastSnapshotTime] = useState<string>('');
   const [isRefreshingSnapshot, setIsRefreshingSnapshot] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
 
   // Store Finder State
   const [storeSearchQuery, setStoreSearchQuery] = useState('');
@@ -135,13 +136,24 @@ const App: React.FC = () => {
       console.log('WebSocket Message Received:', message);
       if (message.type === 'sensor_update') {
         const newData = message.data;
-        setSensors(newData);
+        // Detect door state changes for "Capturing" status
+        setSensors(prev => {
+          if (prev.doorOpen && !newData.doorOpen) {
+            console.log('[IoT] Door closed, starting capture countdown...');
+            setIsCapturing(true);
+          } else if (!prev.doorOpen && newData.doorOpen) {
+            console.log('[IoT] Door re-opened, cancelling capture status...');
+            setIsCapturing(false);
+          }
+          return newData;
+        });
 
         // Only trigger image update if the capture time is actually new
-        if (newData.latest_image_url && newData.lastCaptureTime && newData.lastCaptureTime !== lastKnownCaptureTime) {
+        if (newData.latest_image_url && newData.lastCaptureTime && newData.lastCaptureTime !== lastKnownCaptureTime.current) {
           console.log('[WebSocket] Preparing seamless persisted snapshot:', newData.latest_image_url);
           setPendingSnapshot(getFreshUrl(newData.latest_image_url));
           setLastSnapshotTime(newData.lastCaptureTime);
+          setIsCapturing(false); // Image received, stop capturing status
         }
 
         setSensorHistory(prev => {
@@ -154,12 +166,25 @@ const App: React.FC = () => {
           console.log('[WebSocket] Preparing seamless real-time capture:', message.data.image_url);
           setPendingSnapshot(getFreshUrl(message.data.image_url));
           if (message.data.timestamp) setLastSnapshotTime(message.data.timestamp);
+          setIsCapturing(false); // Image received, stop capturing status
         }
         setNotifications(prev => [{
           id: Date.now().toString(),
           title: 'New Snapshot',
           message: 'Fridge camera captured a new image.',
           type: 'info',
+          timestamp: new Date().toISOString(),
+          isRead: false
+        }, ...prev]);
+      } else if (message.type === 'inventory_update') {
+        const enrichedItems = message.data.items;
+        console.log('[WebSocket] Inventory update received:', enrichedItems);
+        setInventory(enrichedItems);
+        setNotifications(prev => [{
+          id: Date.now().toString(),
+          title: 'Stock Updated',
+          message: `Smart scan complete: ${enrichedItems.length} items identified.`,
+          type: 'success',
           timestamp: new Date().toISOString(),
           isRead: false
         }, ...prev]);
@@ -558,7 +583,7 @@ const App: React.FC = () => {
                       onLoad={() => {
                         console.log('[Buffer] Snapshot pre-loaded, swapping...');
                         setFridgeSnapshot(pendingSnapshot);
-                        setLastKnownCaptureTime(lastSnapshotTime);
+                        lastKnownCaptureTime.current = lastSnapshotTime;
                         setPendingSnapshot('');
                         setIsRefreshingSnapshot(false);
                       }}
@@ -579,11 +604,13 @@ const App: React.FC = () => {
                       <span className={`w-2 h-2 rounded-full ${sensors.doorOpen ? 'bg-error animate-pulse' : 'bg-success'}`}></span>
                       <div className="flex flex-col">
                         <span className="text-[10px] font-bold uppercase tracking-widest leading-none">IoT Live Interior</span>
-                        {lastSnapshotTime && (
+                        {(isCapturing || isRefreshingSnapshot) ? (
+                          <span className="text-[8px] text-warning font-bold animate-pulse">Capturing image...</span>
+                        ) : lastSnapshotTime ? (
                           <span className="text-[8px] opacity-70 font-medium">
                             Last capture: {new Date(lastSnapshotTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   </div>

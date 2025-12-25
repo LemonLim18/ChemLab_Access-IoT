@@ -12,13 +12,16 @@ import paho.mqtt.client as mqtt
 load_dotenv()
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
+import requests
+import base64
 import recommender  # your original file; we do not modify it
 import geminiRecipe
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+import uuid
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Price Recommender API")
@@ -42,6 +45,7 @@ latest_sensor_data = {
     "moistureAlert": False,
     "latest_image_url": None,
     "lastCaptureTime": None,
+    "inventory": [],
     "lastUpdated": datetime.now().isoformat()
 }
 
@@ -73,7 +77,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # MQTT Config
-MQTT_BROKER = "34.122.10.29"
+MQTT_BROKER = "34.10.120.25"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"
@@ -109,6 +113,7 @@ def on_message(client, userdata, msg):
             update_broadcast = True
             
         elif topic == "fridge/capture":
+            # If the mqtt sends the capture signal, then it wil be captured by the backend
             img_url = payload.get("image_url")
             print(f"[MQTT] Received new fridge snapshot: {img_url}")
             latest_sensor_data["latest_image_url"] = img_url
@@ -121,12 +126,77 @@ def on_message(client, userdata, msg):
                 }
             }
             update_broadcast = True
+            
+            # Trigger background AI analysis
+            if main_loop:
+                asyncio.run_coroutine_threadsafe(analyze_image_task(img_url), main_loop)
 
         if update_broadcast and message_to_send and main_loop:
             asyncio.run_coroutine_threadsafe(manager.broadcast(message_to_send), main_loop)
 
     except Exception as e:
         print(f"Error processing MQTT message: {e}")
+
+async def analyze_image_task(img_url: str):
+    """
+    Background task to fetch image, analyze via Gemini, and broadcast update.
+    """
+    global latest_sensor_data, main_loop
+    try:
+        print(f"[AI] Starting image analysis for: {img_url}")
+        
+        # 1. Fetch image content
+        response = requests.get(img_url, timeout=10)
+        if response.status_code != 200:
+            print(f"[AI] Error: Failed to fetch image (Status {response.status_code})")
+            return
+
+        # 2. Convert to Base64
+        image_base64 = base64.b64encode(response.content).decode('utf-8')
+        
+        # 3. Analyze via Gemini (using executor to keep loop free)
+        loop = asyncio.get_running_loop()
+        analysis_result = await loop.run_in_executor(None, geminiRecipe.analyze_snapshot, image_base64)
+        
+        # 4. Update state and broadcast
+        raw_items = analysis_result.get("items", [])
+        enriched_items = []
+        now = datetime.now()
+        
+        for item in raw_items:
+            days = item.get("expiryDays", 7)
+            expiry_date = (now + timedelta(days=days)).isoformat()
+            
+            enriched_item = {
+                "id": str(uuid.uuid4()),
+                "name": item.get("name", "Unknown Item"),
+                "category": item.get("category", "Other"),
+                "quantity": item.get("quantity", 100),
+                "unit": item.get("unit", "percent"),
+                "expiryDate": expiry_date,
+                "addedDate": now.isoformat(),
+                "status": item.get("status", "Good"),
+                "thumbnail": "",  # Placeholder
+                "reorderThreshold": 10 if item.get("unit") == "count" else 20
+            }
+            enriched_items.append(enriched_item)
+
+        latest_sensor_data["inventory"] = enriched_items
+        print(f"[AI] Analysis complete: {len(enriched_items)} items identified.")
+        print(f"[AI] Enriched Inventory List: {[i['name'] for i in enriched_items]}")
+        
+        if main_loop:
+            update_msg = {
+                "type": "inventory_update",
+                "data": {
+                    "items": enriched_items,
+                    "timestamp": now.isoformat()
+                }
+            }
+            asyncio.run_coroutine_threadsafe(manager.broadcast(update_msg), main_loop)
+
+    except Exception as e:
+        print(f"[AI] Error during analysis: {e}")
 
 mqtt_client = mqtt.Client()
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)

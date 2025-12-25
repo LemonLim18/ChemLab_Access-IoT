@@ -29,6 +29,7 @@ export interface SensorData {
   moistureAlert: boolean;
   latest_image_url?: string;
   lastCaptureTime?: string;
+  inventory?: any[];
   lastUpdated: string;
 }
 
