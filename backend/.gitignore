@@ -2,4 +2,6 @@
 .venv
 fridge_model/
 csv_files/
+old_ai_model/
 # *.csv
+__pycache__
