@@ -153,7 +153,7 @@ def upload_image_to_supabase(local_path: str) -> str | None:
                 file_options={"content-type": content_type, "upsert": "true"}
             )
         url_data = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(remote_path)
-        image_url = url_data.get("publicUrl") if isinstance(url_data, dict) else None
+        image_url = url_data if isinstance(url_data, str) else url_data.get("publicUrl")
         return image_url
     except Exception as e:
         print(f"[Supabase Upload Error] {e}")
