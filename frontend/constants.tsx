@@ -5,51 +5,35 @@ import type { FridgeItem, SensorData, Notification } from './types';
 export const INITIAL_INVENTORY: FridgeItem[] = [
   {
     id: '1',
-    name: 'Whole Milk',
+    name: 'Milk',
     category: 'Dairy',
-    quantity: 30,
-    unit: 'percent',
-    expiryDate: '2024-05-20',
-    addedDate: '2024-05-10',
+    quantity: 1,
     status: FreshnessStatus.NEAR_EXPIRY,
-    thumbnail: 'https://picsum.photos/seed/milk/200/200',
-    reorderThreshold: 20
+    reorderThreshold: 2
   },
   {
     id: '2',
-    name: 'Organic Spinach',
+    name: 'Spinach',
     category: 'Vegetables',
     quantity: 1,
-    unit: 'count',
-    expiryDate: '2024-05-15',
-    addedDate: '2024-05-12',
     status: FreshnessStatus.GOOD,
-    thumbnail: 'https://picsum.photos/seed/spinach/200/200',
     reorderThreshold: 1
   },
   {
     id: '3',
-    name: 'Chicken Breast',
+    name: 'Chicken',
     category: 'Meat',
-    quantity: 500,
-    unit: 'count',
-    expiryDate: '2024-05-14',
-    addedDate: '2024-05-11',
+    quantity: 1,
     status: FreshnessStatus.GOOD,
-    thumbnail: 'https://picsum.photos/seed/chicken/200/200',
-    reorderThreshold: 200
+    reorderThreshold: 1
   },
   {
     id: '4',
-    name: 'Greek Yogurt',
+    name: 'Yogurt',
     category: 'Dairy',
-    quantity: 80,
-    unit: 'percent',
-    expiryDate: '2024-05-25',
-    addedDate: '2024-05-10',
+    quantity: 1,
     status: FreshnessStatus.GOOD,
-    thumbnail: 'https://picsum.photos/seed/yogurt/200/200',
-    reorderThreshold: 25
+    reorderThreshold: 1
   }
 ];
 

@@ -12,12 +12,8 @@ export interface FridgeItem {
   id: string;
   name: string;
   category: string;
-  quantity: number; // percentage or count
-  unit: 'percent' | 'count';
-  expiryDate?: string;
-  addedDate: string;
+  quantity: number; // item count
   status: FreshnessStatus;
-  thumbnail: string;
   reorderThreshold: number;
 }
 

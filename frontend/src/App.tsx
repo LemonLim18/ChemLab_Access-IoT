@@ -111,20 +111,64 @@ const App: React.FC = () => {
     return `${cleanUrl}?t=${Date.now()}`;
   };
 
-  const handleRefreshSnapshot = useCallback(() => {
+  const handleRefreshSnapshot = useCallback(async () => {
     setIsRefreshingSnapshot(true);
-    setPendingSnapshot(getFreshUrl(fridgeSnapshot));
+    setIsCapturing(true); // Show the "Capturing..." status
 
-    setTimeout(() => {
+    try {
+      const response = await fetch(`http://${window.location.hostname}:8000/api/snapshot/trigger`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      console.log('[API] Snapshot trigger response:', data);
+
       setNotifications(prev => [{
         id: Date.now().toString(),
         title: 'IoT Cam Status',
-        message: 'Manual refresh triggered. Checking latest view...',
+        message: 'Manual snapshot triggered. Hardware is capturing...',
         type: 'info',
         timestamp: new Date().toISOString(),
         isRead: false
       }, ...prev]);
-    }, 1000);
+    } catch (error) {
+      console.error('[API] Error triggering snapshot:', error);
+      setIsRefreshingSnapshot(false);
+      setIsCapturing(false);
+      alert('Failed to trigger manual snapshot. Please check backend connection.');
+    }
+  }, []);
+
+  // Initial Load Trigger: Fetch latest state from backend
+  useEffect(() => {
+    const fetchInitialState = async () => {
+      try {
+        console.log('[Startup] Triggering initial state fetch...');
+        const response = await fetch(`http://${window.location.hostname}:8000/api/initial-state`);
+        const data = await response.json();
+
+        if (data.inventory) {
+          console.log('[Startup] Hydrating inventory:', data.inventory.length, 'items');
+          setInventory(data.inventory);
+        }
+
+        if (data.latest_image_url) {
+          console.log('[Startup] Hydrating last snapshot:', data.latest_image_url);
+          setFridgeSnapshot(getFreshUrl(data.latest_image_url));
+          if (data.lastCaptureTime) {
+            setLastSnapshotTime(data.lastCaptureTime);
+            lastKnownCaptureTime.current = data.lastCaptureTime;
+          }
+        }
+
+        if (data.temperature !== undefined) {
+          setSensors(data);
+        }
+      } catch (error) {
+        console.error('[Startup] Failed to fetch initial state:', error);
+      }
+    };
+
+    fetchInitialState();
   }, []);
 
   useEffect(() => {
@@ -154,6 +198,11 @@ const App: React.FC = () => {
           setPendingSnapshot(getFreshUrl(newData.latest_image_url));
           setLastSnapshotTime(newData.lastCaptureTime);
           setIsCapturing(false); // Image received, stop capturing status
+        }
+
+        // Initial load hydration: if message contains inventory, use it
+        if (newData.inventory && Array.isArray(newData.inventory)) {
+          setInventory(newData.inventory);
         }
 
         setSensorHistory(prev => {
@@ -266,7 +315,7 @@ const App: React.FC = () => {
         addedDate: new Date().toISOString().split('T')[0],
         expiryDate: new Date(Date.now() + (item.estimatedExpiryDays || 7) * 86400000).toISOString().split('T')[0],
         status: FreshnessStatus.GOOD,
-        thumbnail: `https://picsum.photos/seed/${item.name}/200/200`,
+        // thumbnail: `https://picsum.photos/seed/${item.name}/200/200`,
         reorderThreshold: 20
       }));
       setInventory(prev => [...prev, ...newItems]);
@@ -393,7 +442,7 @@ const App: React.FC = () => {
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-bold text-sm truncate">{item.name}</h3>
-                          <span className="text-[10px] text-error font-bold uppercase">{item.quantity}{item.unit === 'percent' ? '%' : ''} left</span>
+                          <span className="text-[10px] text-error font-bold uppercase">{item.quantity} units left</span>
                         </div>
                         <button
                           className="btn btn-sm btn-primary gap-1"

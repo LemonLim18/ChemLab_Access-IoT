@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Trash2, Edit2, AlertCircle, Package, Carrot, Milk, Apple, Beef, CupSoda, Utensils } from 'lucide-react';
+import { Trash2, Edit2, AlertCircle, Carrot, Milk, Apple, Beef, CupSoda, Utensils } from 'lucide-react';
 import type { FridgeItem } from '../types';
 import { FreshnessStatus } from '../types';
 
@@ -55,28 +55,28 @@ const SlotCard: React.FC<SlotCardProps> = ({ item, onEdit, onRemove }) => {
         </div>
         <div className="flex items-center gap-2 mt-1">
           <div className="flex-1 h-1.5 bg-base-200 rounded-full overflow-hidden">
-            <div 
-              className={`h-full rounded-full ${isLow ? 'bg-error' : 'bg-primary'}`} 
-              style={{ width: `${Math.min(100, item.unit === 'percent' ? item.quantity : (item.quantity / (item.reorderThreshold * 5)) * 100)}%` }}
+            <div
+              className={`h-full rounded-full ${isLow ? 'bg-error' : 'bg-primary'}`}
+              style={{ width: `${Math.min(100, (item.quantity / (item.reorderThreshold || 2)) * 100)}%` }}
             />
           </div>
-          <span className={`text-[10px] font-medium w-10 text-right ${isLow ? 'text-error font-bold' : 'opacity-60'}`}>
-            {item.quantity}{item.unit === 'percent' ? '%' : ''}
+          <span className={`text-[10px] font-medium shrink-0 text-right ${isLow ? 'text-error font-bold' : 'opacity-60'}`}>
+            {item.quantity}
           </span>
         </div>
       </div>
 
       {/* Actions */}
       <div className="flex items-center gap-1 shrink-0">
-        <button 
-          onClick={() => onEdit(item)} 
+        <button
+          onClick={() => onEdit(item)}
           className="btn btn-ghost btn-sm btn-square"
           aria-label="Edit item"
         >
           <Edit2 size={14} />
         </button>
-        <button 
-          onClick={() => onRemove(item.id)} 
+        <button
+          onClick={() => onRemove(item.id)}
           className="btn btn-ghost btn-sm btn-square text-error"
           aria-label="Remove item"
         >
