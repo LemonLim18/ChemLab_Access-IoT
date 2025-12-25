@@ -16,6 +16,7 @@ import requests
 import base64
 import recommender  # your original file; we do not modify it
 import geminiRecipe
+import uploadInventory
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
@@ -49,6 +50,33 @@ latest_sensor_data = {
     "lastUpdated": datetime.now().isoformat()
 }
 
+def init_state_from_supabase():
+    """
+    Hydrates the backend state from Supabase on startup.
+    """
+    global latest_sensor_data
+    print("[Startup] Initializing state from Supabase...")
+    try:
+        # 1. Fetch Latest Inventory
+        db_items = uploadInventory.get_inventory_items()
+        if db_items:
+            latest_sensor_data["inventory"] = db_items
+            print(f"[Startup] Loaded {len(db_items)} items from DB.")
+        
+        # 2. Fetch Latest Image
+        image_info = uploadInventory.get_latest_image_url()
+        if image_info:
+            latest_sensor_data["latest_image_url"] = image_info["url"]
+            latest_sensor_data["lastCaptureTime"] = image_info["created_at"] or image_info["name"]
+            print(f"[Startup] Loaded latest image: {image_info['url']}")
+        else:
+            print("[Startup] No previous images found in Supabase.")
+    except Exception as e:
+        print(f"[Startup] Error during initialization: {e}")
+
+# Initialize state immediately
+init_state_from_supabase()
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -77,7 +105,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # MQTT Config
-MQTT_BROKER = "34.10.120.25"
+MQTT_BROKER = "35.194.40.109"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"
@@ -164,32 +192,30 @@ async def analyze_image_task(img_url: str):
         now = datetime.now()
         
         for item in raw_items:
-            days = item.get("expiryDays", 7)
-            expiry_date = (now + timedelta(days=days)).isoformat()
-            
             enriched_item = {
                 "id": str(uuid.uuid4()),
                 "name": item.get("name", "Unknown Item"),
                 "category": item.get("category", "Other"),
-                "quantity": item.get("quantity", 100),
-                "unit": item.get("unit", "percent"),
-                "expiryDate": expiry_date,
-                "addedDate": now.isoformat(),
+                "quantity": item.get("quantity", 1),
                 "status": item.get("status", "Good"),
-                "thumbnail": "",  # Placeholder
-                "reorderThreshold": 10 if item.get("unit") == "count" else 20
+                "reorderThreshold": 2 
             }
             enriched_items.append(enriched_item)
 
-        latest_sensor_data["inventory"] = enriched_items
-        print(f"[AI] Analysis complete: {len(enriched_items)} items identified.")
-        print(f"[AI] Enriched Inventory List: {[i['name'] for i in enriched_items]}")
+        # 5. Persistent Sync (Merge mode)
+        uploadInventory.sync_inventory_to_supabase(enriched_items, merge=True)
+
+        # 6. Refresh local state from DB to get the FULL merged list
+        full_inventory = uploadInventory.get_inventory_items()
+        latest_sensor_data["inventory"] = full_inventory
+        
+        print(f"[AI] Analysis complete. Merged DB now has {len(full_inventory)} items.")
         
         if main_loop:
             update_msg = {
                 "type": "inventory_update",
                 "data": {
-                    "items": enriched_items,
+                    "items": full_inventory,
                     "timestamp": now.isoformat()
                 }
             }
@@ -463,3 +489,26 @@ def recipe_details(req: RecipeDetailsRequest):
 @app.post("/analyze-snapshot")
 def analyze_snapshot(req: SnapshotRequest):
     return geminiRecipe.analyze_snapshot(req.image_base64)
+
+@app.get("/api/initial-state")
+async def get_initial_state():
+    """
+    Returns the latest hydrated sensor and inventory state for first-load triggering.
+    Ensures state is fresh by re-hydrating from Supabase first.
+    """
+    init_state_from_supabase()
+    return latest_sensor_data
+
+@app.post("/api/snapshot/trigger")
+async def trigger_snapshot():
+    """
+    Manually triggers a hardware snapshot by publishing an MQTT command.
+    """
+    try:
+        print("[API] Manual snapshot trigger received. Publishing MQTT command...")
+        # Publish capture command to the hardware
+        mqtt_client.publish("fridge/command", json.dumps({"command": "capture"}), qos=1)
+        return {"status": "success", "message": "Manual snapshot trigger sent to hardware."}
+    except Exception as e:
+        print(f"[API] Error triggering snapshot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

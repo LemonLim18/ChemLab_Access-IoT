@@ -28,7 +28,7 @@ print("Successfully connected to Supabase!")
 
 # ---------- CONFIG ----------
 DEVICE_ID = "fridge-01"
-MQTT_BROKER = "34.122.10.29"
+MQTT_BROKER = "35.194.40.109"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"
@@ -76,8 +76,20 @@ client = mqtt.Client(client_id=DEVICE_ID, clean_session=True)
 client.username_pw_set(MQTT_USER, MQTT_PASS)
 client.will_set(STATUS_TOPIC, json.dumps({"ok": False, "ts": time.time()}), qos=1, retain=True)
 
+def on_mqtt_message(client, userdata, msg):
+    try:
+        payload = json.loads(msg.payload.decode())
+        command = payload.get("command")
+        if command == "capture":
+            print("[MQTT] Manual capture command received!")
+            executor.submit(capture_and_upload)
+    except Exception as e:
+        print(f"[MQTT] Error processing command: {e}")
+
 def mqtt_connect():
+    client.on_message = on_mqtt_message
     client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+    client.subscribe(COMMAND_TOPIC)
     client.loop_start()
     client.publish(STATUS_TOPIC, json.dumps({"ok": True, "timestamp": time.time()}), qos=1, retain=True)
 
@@ -130,7 +142,9 @@ def _guess_content_type(path: str) -> str:
 
 def upload_image_to_supabase(local_path: str) -> str | None:
     try:
-        remote_path = f"captures/{os.path.basename(local_path)}"
+        # User wants latest timestamp, so we use timestamped filenames in storage
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        remote_path = f"captures/capture_{timestamp}.jpg"
         content_type = _guess_content_type(local_path)
         with open(local_path, "rb") as file_obj:
             supabase.storage.from_(SUPABASE_BUCKET).upload(

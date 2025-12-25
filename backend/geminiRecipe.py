@@ -92,17 +92,19 @@ def analyze_snapshot(image_base64: str) -> Dict[str, Any]:
         CRITICAL: Use "Natural Human Naming". This means:
         - Use generic but descriptive terms that a normal human would use (e.g., "Orange Juice", "Milk", "Yogurt", "Cheese", "Soda", "Apple", "Alcohol").
         - Avoid over-generalizing: Do NOT map "Orange Juice" to just "Orange". If it's a distinct product, use the common name for it.
-        - Avoid over-specifying: Do NOT include brand names, specific colors, or packaging details (e.g., use "Yogurt", not "Yogurt with red cap").
+        - Avoid over-specifying: Do NOT include brand names or packaging details (e.g., use "Yogurt", not "Yogurt with red cap").
+        
+        CRITICAL RULES:
+        1. DO NOT mention any color of the items (e.g., no "Red Apple", no "Green Grapes", no "White Milk"). Use ONLY the common name.
+        2. DO NOT use "percent" or "count" for the unit field. You MUST use "unit" for ALL items (e.g., 1 unit, 2 unit).
         
         The goal is for someone who hasn't seen the fridge to be able to clearly imagine the items in their mind.
         
         For each item, provide:
-        - name: The natural, generic human name.
+        - name: The natural, generic human name (MUST NOT contain color).
         - category: Exactly one of: 'Fruits', 'Vegetables', 'Dairy', 'Meat', 'Beverages', 'Sauces', 'Leftovers', 'Other'
-        - quantity: A number (e.g. 80 for 80%, or 2 for two items)
-        - unit: Exactly one of: 'percent', 'count'
+        - quantity: A number representing the count/amount (e.g. 1, 2, 0.5)
         - status: Exactly one of: 'Good', 'Near Expiry', 'Expired', 'Spoiled'
-        - expiryDays: Estimated number of days until this item expires (number)
         
         Format: Return as a JSON object with a single key "items" containing an array of these objects.
     """
