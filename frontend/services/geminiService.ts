@@ -1,6 +1,6 @@
 import type { FridgeItem, Recipe } from "../types";
 
-const API_BASE_URL = 'http://192.168.1.117:8000'; // Assuming backend runs on 8000
+const API_BASE_URL = 'http://192.168.1.116:8000'; // Updated to match current machine IP
 
 export const getRecipeSuggestions = async (items: FridgeItem[], userPrompt: string = ''): Promise<Recipe[]> => {
 	try {
@@ -70,5 +70,47 @@ export const analyzeSnapshot = async (imageBase64: string) => {
 	} catch (error) {
 		console.error("Error analyzing image:", error);
 		return { items: [] };
+	}
+};
+export const searchStores = async (query: string, lat?: number, lng?: number) => {
+	try {
+		const response = await fetch(`${API_BASE_URL}/recommend`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				product: query,
+				user_lat: lat,
+				user_lon: lng,
+				max_results: 10
+			}),
+		});
+
+		if (!response.ok) {
+			throw new Error(`HTTP error! status: ${response.status}`);
+		}
+
+		return await response.json();
+	} catch (error) {
+		console.error("Error searching stores:", error);
+		return [];
+	}
+};
+
+export const getLocationName = async (lat: number, lng: number): Promise<{ name: string, fullAddress: string }> => {
+	try {
+		const response = await fetch(`${API_BASE_URL}/api/location/name?lat=${lat}&lon=${lng}`);
+		if (!response.ok) {
+			throw new Error(`HTTP error! status: ${response.status}`);
+		}
+		const data = await response.json();
+		return {
+			name: data.name || "Unknown Location",
+			fullAddress: data.fullAddress || "Unknown Address"
+		};
+	} catch (error) {
+		console.error("Error fetching location name:", error);
+		return { name: "Unknown Location", fullAddress: "Unknown Address" };
 	}
 };

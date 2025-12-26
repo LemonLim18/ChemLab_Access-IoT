@@ -1,7 +1,6 @@
-// enum is the runtime value, not a type
-// import type removes it from JS
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Settings, Plus, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils } from 'lucide-react';
+import Swal from 'sweetalert2';
+import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Settings, Plus, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils, List, ChevronRight } from 'lucide-react';
 
 import type { FridgeItem, SensorData, Notification, Recipe, StoreResult, BuyItem } from '../types';
 import { FreshnessStatus } from '../types';
@@ -10,7 +9,13 @@ import Navbar from '../components/Navbar';
 import RealtimeStatusCard from '../components/RealtimeStatusCard';
 import SlotCard from '../components/SlotCard';
 import CameraModal from '../components/CameraModal';
-import { getRecipeSuggestions, getRecipeDetails, analyzeSnapshot } from '../services/geminiService';
+import {
+  getRecipeSuggestions,
+  getRecipeDetails,
+  analyzeSnapshot,
+  searchStores,
+  getLocationName
+} from '../services/geminiService';
 
 
 
@@ -50,6 +55,8 @@ const App: React.FC = () => {
   const lastKnownCaptureTime = React.useRef<string>('');
   const [lastSnapshotTime, setLastSnapshotTime] = useState<string>('');
   const [isRefreshingSnapshot, setIsRefreshingSnapshot] = useState(false);
+  const [activeStoreModal, setActiveStoreModal] = useState<StoreResult | null>(null);
+  const [expandedHistoryItem, setExpandedHistoryItem] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
 
   // Store Finder State
@@ -61,6 +68,7 @@ const App: React.FC = () => {
   void setCheapestStores;
   const [isSearchingStores, setIsSearchingStores] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(null);
+  const [fullLocationName, setFullLocationName] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
 
   // Swipe Gesture State
@@ -97,9 +105,9 @@ const App: React.FC = () => {
     if (isLeftSwipe || isRightSwipe) {
       const currentIndex = TABS.indexOf(activeTab);
       if (isLeftSwipe && currentIndex < TABS.length - 1) {
-        setActiveTab(TABS[currentIndex + 1]);
+        handleTabChange(TABS[currentIndex + 1]);
       } else if (isRightSwipe && currentIndex > 0) {
-        setActiveTab(TABS[currentIndex - 1]);
+        handleTabChange(TABS[currentIndex - 1]);
       }
     }
   };
@@ -134,7 +142,17 @@ const App: React.FC = () => {
       console.error('[API] Error triggering snapshot:', error);
       setIsRefreshingSnapshot(false);
       setIsCapturing(false);
-      alert('Failed to trigger manual snapshot. Please check backend connection.');
+      Swal.fire({
+        title: 'Connection Error',
+        text: 'Failed to reach the fridge camera. Please check your backend connection.',
+        icon: 'error',
+        confirmButtonText: 'Try Again',
+        customClass: {
+          popup: 'rounded-2xl border border-base-content/10 shadow-2xl',
+          confirmButton: 'btn btn-error text-white'
+        },
+        buttonsStyling: false
+      });
     }
   }, []);
 
@@ -258,48 +276,136 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const requestLocation = useCallback(() => {
+  // Effect to fetch location name and auto-recommend stores whenever coordinates change
+  useEffect(() => {
+    if (userLocation) {
+      const fetchLocationAndInitialDeals = async () => {
+        // 1. Get readable address
+        const result = await getLocationName(userLocation.lat, userLocation.lng);
+        console.log("[Location Debug] FULL ADDRESS:", result.fullAddress);
+        setFullLocationName(result.fullAddress);
+
+        // 2. Auto-trigger search for low stock items if no query is set
+        if (!storeSearchQuery.trim()) {
+          const lowStock = inventory.filter(i => i.quantity <= i.reorderThreshold);
+          if (lowStock.length > 0) {
+            // Sort by lowest quantity first
+            const mostUrgent = [...lowStock].sort((a, b) => a.quantity - b.quantity)[0];
+            setStoreSearchQuery(mostUrgent.name);
+
+            // Trigger search with the urgent item
+            const results = await searchStores(mostUrgent.name, userLocation.lat, userLocation.lng);
+            setNearestStores(results.slice(0, 5));
+            setCheapestStores([...results].sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
+          }
+        }
+      };
+      fetchLocationAndInitialDeals();
+    }
+  }, [userLocation]); // Re-run when location is synced
+
+  const requestLocation = useCallback((isManual: boolean = false) => {
     if (navigator.geolocation) {
-      setIsLocating(true);
+      if (!isManual) setIsLocating(true);
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          console.log("[Location Debug] Raw Coordinates:", {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: `${pos.coords.accuracy} meters`
+          });
           setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           setIsLocating(false);
-          setNotifications(prev => [{
-            id: Date.now().toString(),
-            title: 'Location Found',
-            message: `Lat: ${pos.coords.latitude.toFixed(4)}, Lng: ${pos.coords.longitude.toFixed(4)}`,
-            type: 'success',
-            timestamp: new Date().toISOString(),
-            isRead: false
-          }, ...prev]);
+          // Toast for success
+          Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'success',
+            title: 'Location sync complete',
+            showConfirmButton: false,
+            timer: 2000
+          });
         },
         (err) => {
           console.error("Location error", err);
           setIsLocating(false);
-          alert("Could not access your location. Please check your browser permissions.");
+          if (isManual) {
+            Swal.fire({
+              title: 'Access Denied',
+              text: "We couldn't get your location. Please check your browser permissions.",
+              icon: 'error',
+              customClass: { popup: 'rounded-2xl border border-base-content/10' }
+            });
+          }
         },
-        { timeout: 10000 }
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
       );
-    } else {
-      alert("Geolocation is not supported by your browser.");
     }
   }, []);
+
+  const promptForLocation = async () => {
+    const result = await Swal.fire({
+      title: 'Find Local Deals?',
+      text: "Grant location access to see the cheapest groceries and nearest stores synchronized with your fridge!",
+      icon: 'question',
+      iconColor: 'var(--color-primary)',
+      showCancelButton: true,
+      confirmButtonText: 'Enable Now',
+      cancelButtonText: 'Later',
+      customClass: {
+        popup: 'rounded-3xl p-6 border border-base-content/10 shadow-2xl',
+        confirmButton: 'btn btn-primary px-8 rounded-xl mr-2',
+        cancelButton: 'btn btn-ghost px-8 rounded-xl'
+      },
+      buttonsStyling: false,
+      backdrop: 'blur(4px)'
+    });
+
+    if (result.isConfirmed) {
+      requestLocation(true);
+    }
+  };
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    if ((tab === 'shop' || tab === 'search') && !userLocation) {
+      promptForLocation();
+    }
+  };
 
   const handleStoreSearch = async () => {
     if (!storeSearchQuery.trim()) return;
     setIsSearchingStores(true);
 
-    // Ensure we have location
-    if (!userLocation) {
-      requestLocation();
-    }
+    try {
+      const results = await searchStores(
+        storeSearchQuery,
+        userLocation?.lat,
+        userLocation?.lng
+      );
 
-    // API Call to Uvicorn Backend
-    // const { nearest, cheapest } = await searchStores(storeSearchQuery, userLocation?.lat, userLocation?.lng);
-    // setNearestStores(nearest);
-    // setCheapestStores(cheapest);
-    setIsSearchingStores(false);
+      setNearestStores(results.slice(0, 5));
+      setCheapestStores(results.sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
+
+      if (results.length === 0) {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'info',
+          title: 'No local results found',
+          showConfirmButton: false,
+          timer: 3000
+        });
+      }
+    } catch (error) {
+      console.error("Search error:", error);
+    } finally {
+      setIsSearchingStores(false);
+    }
   };
 
   const handleCapture = async (base64: string) => {
@@ -361,17 +467,82 @@ const App: React.FC = () => {
     }, ...prev]);
 
     setSelectedRecipe(null);
-    alert("Consumption updated! Stock levels for ingredients have been reduced.");
+    Swal.fire({
+      title: 'Meal Prepared!',
+      text: 'Inventory levels updated automatically.',
+      icon: 'success',
+      confirmButtonText: 'Great!',
+      customClass: {
+        popup: 'rounded-2xl border border-base-content/10 shadow-2xl',
+        confirmButton: 'btn btn-success text-white'
+      },
+      buttonsStyling: false
+    });
   };
 
-  const removeItem = (id: string) => {
-    setInventory(prev => prev.filter(i => i.id !== id));
+  const removeItem = async (id: string) => {
+    const result = await Swal.fire({
+      title: 'Remove Item?',
+      text: "This item will be permanently removed from inventory.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      cancelButtonText: 'Keep it',
+      customClass: {
+        popup: 'rounded-3xl p-6 border border-base-content/10 shadow-2xl',
+        confirmButton: 'btn btn-error px-8 rounded-xl mr-2',
+        cancelButton: 'btn btn-ghost px-8 rounded-xl'
+      },
+      buttonsStyling: false,
+      backdrop: 'blur(4px)'
+    });
+
+    if (result.isConfirmed) {
+      setInventory(prev => prev.filter(i => i.id !== id));
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Item removed',
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true
+      });
+    }
   };
 
-  const editItem = (item: FridgeItem) => {
-    const newName = prompt("Update item name:", item.name);
+  const editItem = async (item: FridgeItem) => {
+    const { value: newName } = await Swal.fire({
+      title: 'Update Name',
+      input: 'text',
+      inputLabel: `Rename ${item.name}`,
+      inputValue: item.name,
+      showCancelButton: true,
+      confirmButtonText: 'Save Changes',
+      customClass: {
+        popup: 'rounded-3xl p-6 border border-base-content/10 shadow-2xl',
+        confirmButton: 'btn btn-primary px-8 rounded-xl mr-2',
+        cancelButton: 'btn btn-ghost px-8 rounded-xl',
+        input: 'input input-bordered w-full max-w-xs rounded-xl mt-4'
+      },
+      buttonsStyling: false,
+      inputValidator: (value) => {
+        if (!value) return 'Name cannot be empty!';
+        return null;
+      }
+    });
+
     if (newName) {
       setInventory(prev => prev.map(i => i.id === item.id ? { ...i, name: newName } : i));
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Name updated!',
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true
+      });
     }
   };
 
@@ -401,16 +572,17 @@ const App: React.FC = () => {
     <div className="flex flex-col min-h-screen">
       <div className="fixed top-0 left-0 right-0 z-50">
         <Navbar
-          onOpenSettings={() => setActiveTab('settings')}
-          onOpenAlerts={() => setActiveTab('dashboard')}
+          onOpenSettings={() => handleTabChange('settings')}
+          onOpenAlerts={() => handleTabChange('dashboard')}
           unreadCount={notifications.filter(n => !n.isRead).length}
-          onToggleLocation={requestLocation}
+          onToggleLocation={() => requestLocation(true)}
           userLocation={userLocation}
           isLocating={isLocating}
         />
       </div>
 
       <main
+        // className="flex-1 overflow-hidden mt-16 pb-24"
         className="flex-1 overflow-hidden mt-16 pb-24"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
@@ -421,8 +593,28 @@ const App: React.FC = () => {
           style={{ transform: `translateX(-${TABS.indexOf(activeTab) * 100}%)` }}
         >
           {/* TAB 1: DASHBOARD */}
-          <div className="w-full shrink-0 p-4">
+          <div className="w-full shrink-0 p-4 space-y-6">
             <div className="max-w-4xl mx-auto space-y-6">
+              {/* Premium Location Banner */}
+              {fullLocationName && (
+                <div className="card bg-gradient-to-br from-primary/10 to-base-100 border border-primary/20 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-700">
+                  <div className="card-body p-4 flex-row items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center text-primary shadow-inner">
+                      <MapPin size={24} className="fill-primary/20" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary/60 mb-0.5">CURRENTLY AT</p>
+                      <h3 className="font-bold text-sm leading-tight text-base-content/80 line-clamp-2">{fullLocationName}</h3>
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-circle btn-sm text-primary/40 hover:text-primary"
+                      onClick={() => requestLocation(true)}
+                    >
+                      <RefreshCw size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
               <RealtimeStatusCard data={sensors} history={sensorHistory} />
 
               <section>
@@ -448,7 +640,7 @@ const App: React.FC = () => {
                           className="btn btn-sm btn-primary gap-1"
                           onClick={() => {
                             addToBuyList(item.name, 'low-stock');
-                            setActiveTab('shop'); // Direct navigation to the To-buy tab
+                            handleTabChange('shop'); // Standardized navigation
                           }}
                         >
                           <ShoppingCart size={14} /> Check into To-buy
@@ -464,27 +656,55 @@ const App: React.FC = () => {
               </section>
 
               <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="card bg-primary/5 border border-primary/20 shadow-sm">
-                  <div className="card-body p-4">
-                    <h3 className="card-title text-sm text-primary uppercase flex items-center gap-2">
-                      <DollarSign size={16} /> Cheapest Nearby
+                {/* Cheapest Nearby Card */}
+                <div className="card bg-primary/5 border border-primary/20 shadow-sm relative overflow-hidden group">
+                  <div className="card-body p-4 transition-all group-hover:bg-primary/5">
+                    <h3 className="card-title text-[10px] text-primary font-black uppercase tracking-widest flex items-center gap-2">
+                      <DollarSign size={14} /> Best Local Deal
                     </h3>
-                    <div className="mt-2">
-                      <p className="font-bold text-lg">Walmart Supercenter</p>
-                      <button className="btn btn-primary btn-sm btn-block mt-4" onClick={() => setActiveTab('shop')}>Open Smart List</button>
+                    <div className="mt-2 h-20 flex flex-col justify-center">
+                      {cheapestStores.length > 0 ? (
+                        <>
+                          <p className="font-black text-xl text-base-content/90 line-clamp-1">{cheapestStores[0].premise}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            <span className="badge badge-primary badge-sm font-bold">RM {cheapestStores[0].min_price.toFixed(2)}</span>
+                            <span className="text-[10px] font-black text-primary/60">{cheapestStores[0].distance_km?.toFixed(1) || '?'} km away</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="opacity-30 flex flex-col items-center">
+                          <ShoppingCart size={24} className="mb-1" />
+                          <p className="text-[10px] font-bold uppercase tracking-tighter">No deals found</p>
+                        </div>
+                      )}
                     </div>
+                    <button className="btn btn-primary btn-sm btn-block mt-4 rounded-xl normal-case font-bold" onClick={() => handleTabChange('shop')}>View Smart List</button>
                   </div>
                 </div>
 
-                <div className="card bg-secondary/5 border border-secondary/20 shadow-sm">
-                  <div className="card-body p-4">
-                    <h3 className="card-title text-sm text-secondary uppercase flex items-center gap-2">
-                      <MapPin size={16} /> Nearest Store
+                {/* Nearest Store Card */}
+                <div className="card bg-secondary/5 border border-secondary/20 shadow-sm relative overflow-hidden group">
+                  <div className="card-body p-4 transition-all group-hover:bg-secondary/5">
+                    <h3 className="card-title text-[10px] text-secondary font-black uppercase tracking-widest flex items-center gap-2">
+                      <MapPin size={14} /> Nearest Option
                     </h3>
-                    <div className="mt-2 text-center">
-                      <p className="font-bold text-lg">7-Eleven Local</p>
-                      <button className="btn btn-secondary btn-sm btn-block mt-4">Get Directions</button>
+                    <div className="mt-2 h-20 flex flex-col justify-center">
+                      {nearestStores.length > 0 ? (
+                        <>
+                          <p className="font-black text-xl text-base-content/90 line-clamp-1">{nearestStores[0].premise}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            <span className="badge badge-secondary badge-sm font-bold">{nearestStores[0].distance_km?.toFixed(1) || '?'} km</span>
+                            <span className="text-[10px] font-black text-secondary/60">RM {nearestStores[0].min_price.toFixed(2)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="opacity-30 flex flex-col items-center">
+                          <MapPin size={24} className="mb-1" />
+                          <p className="text-[10px] font-bold uppercase tracking-tighter">Sync location</p>
+                        </div>
+                      )}
                     </div>
+                    <button className="btn btn-secondary btn-sm btn-block mt-4 rounded-xl normal-case font-bold" onClick={() => handleTabChange('search')}>Find More Stores</button>
                   </div>
                 </div>
               </section>
@@ -494,13 +714,50 @@ const App: React.FC = () => {
           {/* TAB 2: STORE FINDER */}
           <div className="w-full shrink-0 p-4">
             <div className="max-w-4xl mx-auto space-y-6">
-              <div className="card bg-base-100 shadow-xl p-6 border border-base-200">
-                <h2 className="text-2xl font-black mb-4 flex items-center gap-2">
-                  <Search className="text-primary" /> Store Finder
-                </h2>
-                <p className="text-sm opacity-60 mb-6">Search for food items to find the best local places to shop.</p>
+              {/* Redesigned Search Header with Full Location */}
+              <div className="card bg-base-100 shadow-xl p-6 border border-base-200 overflow-hidden relative">
+                {/* Visual Accent */}
+                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
 
-                <div className="join w-full shadow-lg rounded-full">
+                <div className="relative z-10">
+                  <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-6">
+                    <div>
+                      <h2 className="text-3xl font-black flex items-center gap-3 tracking-tighter">
+                        <Search className="text-primary" size={32} /> STORE FINDER
+                      </h2>
+                      <p className="text-sm opacity-60 mt-1 max-w-md">Find the best local prices synchronized with your real-time fridge inventory.</p>
+                    </div>
+
+                    {fullLocationName ? (
+                      <div
+                        className="bg-primary/10 pl-3 pr-4 py-2.5 rounded-2xl flex items-center gap-3 border border-primary/20 cursor-pointer hover:bg-primary/15 transition-all group animate-in zoom-in-95 duration-500"
+                        onClick={() => requestLocation(true)}
+                      >
+                        <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
+                          <MapPin size={18} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-primary/60 mb-0.5">YOUR LOCATION</p>
+                          <p className="text-[11px] font-bold text-primary leading-tight max-w-[180px] line-clamp-1">{fullLocationName}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="btn btn-primary btn-outline border-dashed rounded-2xl gap-2 h-auto py-2 px-4 normal-case"
+                        onClick={() => requestLocation(true)}
+                      >
+                        <MapPin size={16} />
+                        <div className="text-left">
+                          <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Sync Location</p>
+                          <p className="text-xs font-bold">Find Stores Nearby</p>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+
+                </div>
+
+                <div className="join w-full shadow-lg rounded-full mb-4 relative z-10">
                   <input
                     type="text"
                     placeholder="Search food (e.g. Milk, Salmon, Eggs)..."
@@ -518,13 +775,41 @@ const App: React.FC = () => {
                   </button>
                 </div>
 
+                {/* Urgent Need Pills */}
+                {lowStockItems.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4 relative z-10">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-error/60 w-full mb-1">Items running low:</span>
+                    {lowStockItems.map(item => (
+                      <button
+                        key={item.id}
+                        className={`btn btn-xs rounded-full border-dashed normal-case font-bold transition-all ${storeSearchQuery.toLowerCase() === item.name.toLowerCase() ? 'btn-error text-white border-solid shadow-md' : 'btn-ghost bg-error/5 text-error border-error/20 hover:bg-error/10'}`}
+                        onClick={() => {
+                          setStoreSearchQuery(item.name);
+                          setTimeout(() => handleStoreSearch(), 50);
+                        }}
+                      >
+                        {item.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {!userLocation && (
-                  <button
-                    className="btn btn-ghost btn-xs mt-2 gap-2 text-primary"
-                    onClick={requestLocation}
-                  >
-                    <MapPin size={12} /> Enable Location for better results
-                  </button>
+                  <div className="bg-primary/5 rounded-2xl p-4 border border-primary/20 flex flex-col items-center text-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                      <MapPin size={24} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold">Personalize your results</h4>
+                      <p className="text-xs opacity-60">Enable location to see store distances and travel times.</p>
+                    </div>
+                    <button
+                      className="btn btn-primary btn-sm rounded-xl px-6"
+                      onClick={() => requestLocation(true)}
+                    >
+                      Enable Location
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -535,17 +820,28 @@ const App: React.FC = () => {
                 </h3>
                 <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
                   {nearestStores.length > 0 ? nearestStores.map((store, i) => (
-                    <div key={i} className="card bg-base-100 shadow-md border border-base-200 min-w-[240px] shrink-0 hover:border-secondary transition-colors">
+                    <div
+                      key={i}
+                      className="card bg-base-100 shadow-md border border-base-200 min-w-[240px] max-w-[280px] shrink-0 hover:border-secondary transition-all cursor-pointer group active:scale-95"
+                      onClick={() => setActiveStoreModal(store)}
+                    >
                       <div className="card-body p-4">
-                        <div className="flex justify-between items-start">
-                          <h4 className="font-bold text-sm leading-tight line-clamp-2">{store.name}</h4>
-                          <span className="badge badge-secondary badge-xs shrink-0">{store.distance}</span>
+                        <div className="flex justify-between items-start gap-2">
+                          <div>
+                            <span className="text-[9px] font-black tracking-widest text-secondary/60 uppercase block mb-1">{store.premise_type}</span>
+                            <h4 className="font-bold text-sm leading-tight line-clamp-2 group-hover:text-secondary transition-colors">{store.premise}</h4>
+                          </div>
+                          <span className="badge badge-secondary badge-xs shrink-0 font-bold">{store.distance_km?.toFixed(1) || '?'} km</span>
                         </div>
-                        <p className="text-[10px] opacity-60">{store.address}</p>
-                        <div className="card-actions justify-end mt-4">
-                          <a href={store.uri} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-outline btn-secondary gap-1">
-                            <ExternalLink size={10} /> View Map
-                          </a>
+                        <p className="text-[10px] opacity-60 mt-1 line-clamp-2 leading-relaxed">{store.address}</p>
+                        <div className="flex items-center justify-between mt-4">
+                          <div className="text-[11px] font-black text-secondary">
+                            RM {store.min_price.toFixed(2)}
+                            <span className="text-[8px] opacity-50 block font-bold mt-0.5">{store.items.length} OPTIONS</span>
+                          </div>
+                          <div className="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center text-secondary group-hover:bg-secondary group-hover:text-white transition-all">
+                            <ChevronRight size={14} />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -564,17 +860,25 @@ const App: React.FC = () => {
                 </h3>
                 <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
                   {cheapestStores.length > 0 ? cheapestStores.map((store, i) => (
-                    <div key={i} className="card bg-base-100 shadow-md border border-base-200 min-w-[240px] shrink-0 hover:border-success transition-colors">
+                    <div
+                      key={i}
+                      className="card bg-base-100 shadow-md border border-base-200 min-w-[240px] max-w-[280px] shrink-0 hover:border-success transition-all cursor-pointer group active:scale-95"
+                      onClick={() => setActiveStoreModal(store)}
+                    >
                       <div className="card-body p-4">
-                        <div className="flex justify-between items-start">
-                          <h4 className="font-bold text-sm leading-tight line-clamp-2">{store.name}</h4>
-                          <span className="badge badge-success badge-xs shrink-0 text-white">{store.priceLevel}</span>
+                        <div className="flex justify-between items-start gap-2">
+                          <div>
+                            <span className="text-[9px] font-black tracking-widest text-success/60 uppercase block mb-1">{store.premise_type}</span>
+                            <h4 className="font-bold text-sm leading-tight line-clamp-2 group-hover:text-success transition-colors">{store.premise}</h4>
+                          </div>
+                          <span className="badge badge-success badge-xs shrink-0 text-white font-bold">RM {store.min_price.toFixed(2)}</span>
                         </div>
-                        <p className="text-[10px] opacity-60">High Savings Potential</p>
-                        <div className="card-actions justify-end mt-4">
-                          <a href={store.uri} target="_blank" rel="noopener noreferrer" className="btn btn-xs btn-outline btn-success gap-1">
-                            <ExternalLink size={10} /> Check Prices
-                          </a>
+                        <p className="text-[10px] opacity-60 mt-1 line-clamp-1 italic">Located {store.distance_km?.toFixed(1) || '?'} km away</p>
+                        <div className="flex items-center justify-between mt-4 text-[10px] font-black text-success/70">
+                          <div>{store.items.length} VARIATIONS AVAILABLE</div>
+                          <div className="w-6 h-6 rounded-full bg-success/10 flex items-center justify-center text-success group-hover:bg-success group-hover:text-white transition-all">
+                            <ChevronRight size={14} />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -902,31 +1206,156 @@ const App: React.FC = () => {
 
       {/* Bottom navbar */}
       <div className="dock dock-md bg-base-100 border-t border-base-300 z-60 shadow-2xl">
-        <button className={activeTab === 'dashboard' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => setActiveTab('dashboard')}>
+        <button className={activeTab === 'dashboard' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('dashboard')}>
           <LayoutDashboard size={20} />
           <span className="dock-label text-[9px] uppercase font-black">Home</span>
         </button>
-        <button className={activeTab === 'search' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => setActiveTab('search')}>
+        <button className={activeTab === 'search' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('search')}>
           <Search size={20} />
-          <span className="btm-nav-label text-[9px] uppercase font-black">Stores</span>
+          <span className="dock-label text-[9px] uppercase font-black">Search</span>
         </button>
-        <button className={activeTab === 'inventory' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => setActiveTab('inventory')}>
+        <button className={activeTab === 'inventory' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('inventory')}>
           <Package size={20} />
           <span className="dock-label text-[9px] uppercase font-black">Fridge</span>
         </button>
-        <button className={activeTab === 'recipes' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => setActiveTab('recipes')}>
+        <button className={activeTab === 'recipes' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('recipes')}>
           <ChefHat size={20} />
           <span className="dock-label text-[9px] uppercase font-black">Chef AI</span>
         </button>
-        <button className={activeTab === 'shop' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => setActiveTab('shop')}>
+        <button className={activeTab === 'shop' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('shop')}>
           <ShoppingCart size={20} />
-          <span className="dock-label text-[9px] uppercase font-black">To-buy</span>
+          <span className="dock-label text-[9px] uppercase font-black">Shop</span>
         </button>
-        <button className={activeTab === 'settings' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => setActiveTab('settings')}>
-          <Settings size={20} />
-          <span className="dock-label text-[9px] uppercase font-black">Settings</span>
+        <button className={activeTab === 'settings' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('settings')}>
+          <User size={20} />
+          <span className="dock-label text-[9px] uppercase font-black">Me</span>
         </button>
       </div>
+
+      {/* STORE DETAILS MODAL */}
+      {activeStoreModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setActiveStoreModal(null)}></div>
+          <div className="bg-base-100 w-full max-w-2xl max-h-[85vh] rounded-[2rem] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 slide-in-from-bottom-8 duration-500 border border-base-content/10">
+            {/* Modal Header */}
+            <div className="p-8 pb-4 relative overflow-hidden shrink-0">
+              {/* Map Background Embed */}
+              <div className="absolute inset-0 z-0 opacity-20 mask-mask-b-to-transparent">
+                <iframe
+                  width="100%"
+                  height="100%"
+                  frameBorder="0"
+                  style={{ border: 0 }}
+                  src={`https://maps.google.com/maps?q=${activeStoreModal.lat},${activeStoreModal.lon}&z=14&output=embed`}
+                  allowFullScreen
+                ></iframe>
+              </div>
+
+              <div className="relative z-10 flex flex-col md:flex-row justify-between items-start gap-4">
+                <div>
+                  <div className="badge badge-primary badge-sm font-black uppercase tracking-widest mb-2">{activeStoreModal.premise_type}</div>
+                  <h2 className="text-2xl font-black tracking-tight leading-tight">{activeStoreModal.premise}</h2>
+                  <p className="text-[11px] opacity-60 mt-1 flex items-center gap-1.5 font-medium italic">
+                    <MapPin size={10} /> {activeStoreModal.address}
+                  </p>
+                </div>
+                <div className="bg-base-200/50 p-3 rounded-2xl flex items-center gap-3 border border-base-content/5 shrink-0">
+                  <div className="text-right">
+                    <p className="text-[9px] font-black opacity-40 uppercase tracking-tighter">Proximity</p>
+                    <p className="text-sm font-black">{activeStoreModal.distance_km?.toFixed(1) || '?'} KM</p>
+                  </div>
+                  <div className="divider divider-horizontal m-0 opacity-10"></div>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${activeStoreModal.lat},${activeStoreModal.lon}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-circle btn-primary btn-sm shadow-lg shadow-primary/30"
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body: Item List */}
+            <div className="flex-1 overflow-y-auto px-8 pb-8 space-y-4 no-scrollbar">
+              <div className="sticky top-0 bg-base-100 pt-2 pb-4 z-20 border-b border-base-content/5 mb-4">
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
+                  <List size={12} /> Product Alternatives ({activeStoreModal.items.length})
+                </h3>
+              </div>
+
+              <div className="grid gap-3">
+                {activeStoreModal.items.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className={`bg-base-200/40 rounded-2xl border border-base-content/5 transition-all overflow-hidden ${expandedHistoryItem === item.item_code ? 'ring-2 ring-primary/30 bg-base-100' : 'hover:border-primary/20'}`}
+                  >
+                    <div
+                      className="p-4 cursor-pointer flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+                      onClick={() => setExpandedHistoryItem(expandedHistoryItem === item.item_code ? null : item.item_code)}
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-primary/10 text-primary uppercase">{item.item_category}</span>
+                          <span className="text-[10px] opacity-40 font-bold">#{item.item_code}</span>
+                        </div>
+                        <h4 className="font-bold text-sm leading-tight text-base-content/80">{item.item}</h4>
+                        <div className="flex gap-3 mt-1.5 opacity-50 text-[10px] font-bold">
+                          <span>{item.unit}</span>
+                          <span>•</span>
+                          <span className="italic">Latest Check: {new Date(item.date).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 w-full md:w-auto">
+                        <div className="text-lg font-black text-primary bg-primary/5 px-4 py-2 rounded-xl border border-primary/10 flex-1 md:flex-none text-center">
+                          RM {item.price.toFixed(2)}
+                        </div>
+                        <div className={`transition-transform duration-300 ${expandedHistoryItem === item.item_code ? 'rotate-180 text-primary' : 'opacity-20'}`}>
+                          <ChevronRight size={16} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* PRICE HISTORY SECTION */}
+                    {expandedHistoryItem === item.item_code && (
+                      <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300">
+                        <div className="bg-base-300/30 rounded-xl p-4 border border-base-content/5">
+                          <h5 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3 flex items-center gap-1.5">
+                            <Clock size={10} /> Price Journey (History)
+                          </h5>
+                          <div className="space-y-2">
+                            {item.history.map((h, hIdx) => (
+                              <div key={hIdx} className="flex justify-between items-center text-xs">
+                                <span className="opacity-60 font-medium">{new Date(h.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                <div className="flex items-center gap-2">
+                                  {hIdx < item.history.length - 1 && (
+                                    <span className={`text-[9px] font-bold ${h.price < item.history[hIdx + 1].price ? 'text-success' : h.price > item.history[hIdx + 1].price ? 'text-error' : 'opacity-20'}`}>
+                                      {h.price < item.history[hIdx + 1].price ? '↓' : h.price > item.history[hIdx + 1].price ? '↑' : '='}
+                                    </span>
+                                  )}
+                                  <span className="font-black">RM {h.price.toFixed(2)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-[9px] text-center opacity-30 mt-4 font-bold italic">Prices tracked by government transparency initiatives.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 bg-base-200/30 border-t border-base-content/5 flex justify-between items-center shrink-0">
+              <button className="btn btn-ghost btn-sm normal-case font-bold" onClick={() => setActiveStoreModal(null)}>Close</button>
+              <p className="text-[10px] opacity-40 font-bold">Price Catcher API Sync • {activeStoreModal.last_date}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

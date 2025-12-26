@@ -48,12 +48,37 @@ export interface Recipe {
   fullIngredients?: string[];
 }
 
+export interface PricePoint {
+  date: string;
+  price: number;
+}
+
+export interface StoreItem {
+  item_code: string;
+  item: string;
+  price: number;
+  unit: string;
+  date: string;
+  item_group?: string;
+  item_category?: string;
+  history: PricePoint[];
+}
+
 export interface StoreResult {
   name: string;
   address: string;
   distance?: string;
   priceLevel?: string;
   uri: string;
+  // Fields for real store data
+  premise: string;
+  premise_type: string;
+  min_price: number;
+  distance_km?: number;
+  lat?: number;
+  lon?: number;
+  items: StoreItem[];
+  last_date: string;
 }
 
 export interface BuyItem {

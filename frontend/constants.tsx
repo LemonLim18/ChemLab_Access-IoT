@@ -17,7 +17,7 @@ export const INITIAL_INVENTORY: FridgeItem[] = [
     category: 'Vegetables',
     quantity: 1,
     status: FreshnessStatus.GOOD,
-    reorderThreshold: 1
+    reorderThreshold: 2
   },
   {
     id: '3',
@@ -33,7 +33,7 @@ export const INITIAL_INVENTORY: FridgeItem[] = [
     category: 'Dairy',
     quantity: 1,
     status: FreshnessStatus.GOOD,
-    reorderThreshold: 1
+    reorderThreshold: 2
   }
 ];
 

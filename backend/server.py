@@ -18,6 +18,7 @@ import recommender  # your original file; we do not modify it
 import geminiRecipe
 import uploadInventory
 import pandas as pd
+import re
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 import time
@@ -276,8 +277,23 @@ class RecommendRequest(BaseModel):
     state_hint: Optional[str] = None
     district_hint: Optional[str] = None
 
+class PricePoint(BaseModel):
+    date: str
+    price: float
+
+class StoreItem(BaseModel):
+    item_code: str
+    item: str
+    price: float
+    unit: str
+    date: str
+    item_group: Optional[str]
+    item_category: Optional[str]
+    history: List[PricePoint]
+
 class RecommendRow(BaseModel):
     premise: Optional[str]
+    premise_type: Optional[str]
     min_price: Optional[float]
     distance_km: Optional[float]
     lat: Optional[float]
@@ -286,7 +302,8 @@ class RecommendRow(BaseModel):
     address: Optional[str]
     state: Optional[str]
     district: Optional[str]
-    last_date: Optional[Any]
+    items: List[StoreItem]
+    last_date: Optional[str]
 
 class RecipeRequest(BaseModel):
     items: List[Dict[str, Any]]
@@ -356,41 +373,116 @@ def recommend(req: RecommendRequest):
     if not df_area.empty and addr_info and addr_info.get("district"):
         df_d = df_area[df_area["district"].fillna("").str.lower().str.contains(str(addr_info["district"]).lower(), na=False)]
         if not df_d.empty:
-            df_area = df_d
+            df_area = df_d.copy()
     if df_area.empty:
         df_area = df.copy()
 
-    # 5) Product matching (use your original matcher)
+    # 5) Data Preprocessing: Sort by date
+    # Initialize date_str as a copy of date to prevent KeyError if parsing fails
+    df_area['date_str'] = df_area['date'].astype(str)
+    try:
+        # Use format='mixed' to handle various date strings and timestamps robustly
+        df_area['date_dt'] = pd.to_datetime(df_area['date'], dayfirst=True, format='mixed', errors='coerce')
+        # Sort by date descending so we have chronology
+        df_area = df_area.sort_values('date_dt', ascending=False)
+        # Filter out NaT values if any (though unlikely for valid rows)
+        df_area = df_area.dropna(subset=['date_dt'])
+        df_area['date_str'] = df_area['date_dt'].dt.strftime('%Y-%m-%d')
+    except Exception as e:
+        print(f"Date parsing error: {e}")
+        # Fallback: if to_datetime fails, just use the string version for distance sorting
+        df_area['date_dt'] = df_area['date']
+
+    # 6) Product matching (use your original matcher)
     product_q = req.product.strip()
     if not product_q:
         raise HTTPException(status_code=400, detail="Empty product provided")
 
     if product_q.isdigit():
-        df_prod = df_area[df_area["item_code"].astype(str) == product_q]
+        df_prod = df_area[df_area["item_code"].astype(str) == product_q].copy()
     else:
         items = df_area["item"].dropna().unique().tolist()
         matched_items = recommender.match_items(product_q, items)
         if not matched_items:
             raise HTTPException(status_code=404, detail="No matching product found")
-        best_match = matched_items[0][0]
-        df_prod = df_area[df_area["item"].fillna("").str.lower().str.contains(best_match.lower())]
+        
+        best_matches = [m[0] for m in matched_items[:5]] 
+        pattern = '|'.join([re.escape(m.lower()) for m in best_matches])
+        df_prod = df_area[df_area["item"].fillna("").str.lower().str.contains(pattern, na=False, regex=True)].copy()
+
+    # 7) Logical Categorical Filtering (Fixing Tembikai Susu issue)
+    if any(k in product_q.lower() for k in ["milk", "susu"]):
+        exclude_cats = ["BUAH-BUAHAN", "FRUITS"]
+        if not df_prod[~df_prod["item_category"].fillna("").str.upper().isin(exclude_cats)].empty:
+            df_prod = df_prod[~df_prod["item_category"].fillna("").str.upper().isin(exclude_cats)].copy()
 
     if df_prod.empty:
         raise HTTPException(status_code=404, detail="No matching product rows found")
 
-    # ensure numeric price (same as original)
+    # ensure numeric price
     df_prod.loc[:, "price"] = pd.to_numeric(df_prod["price"], errors="coerce")
+    
+    # 8) Group by store and item_code to aggregate history
+    # First, ensure date is datetime for sorting
+    df_prod['date_dt'] = pd.to_datetime(df_prod['date'], dayfirst=True, format='mixed', errors='coerce')
+    
+    # Store-level grouping
+    store_groups = df_prod.groupby(["premise_code", "premise", "premise_type", "address", "state", "district"])
 
-    grouped = (
-        df_prod
-        .groupby(["premise_code","premise","address","state","district"], as_index=False)
-        .agg(min_price=("price","min"), last_date=("date","max"))
-        .dropna(subset=["min_price"])
-        .sort_values("min_price")
-        .reset_index(drop=True)
-    )
+    grouped_data = []
+    for (p_code, p_name, p_type, p_addr, p_state, p_dist), store_group in store_groups:
+        # Item-level grouping within this store to get history for each unique product
+        item_alternatives = []
+        item_groups = store_group.groupby("item_code")
+        
+        for i_code, item_history_group in item_groups:
+            # Sort this item's history by date descending
+            history_sorted = item_history_group.sort_values("date_dt", ascending=False)
+            latest_row = history_sorted.iloc[0]
+            
+            # Create history list of {date, price}
+            history_list = [
+                PricePoint(date=str(row["date_str"]), price=float(row["price"])) 
+                for _, row in history_sorted.iterrows()
+            ]
+            
+            item_alternatives.append(StoreItem(
+                item_code=str(i_code),
+                item=latest_row["item"],
+                price=float(latest_row["price"]),
+                unit=str(latest_row["unit"]),
+                date=str(latest_row["date_str"]),
+                item_group=str(latest_row["item_group"]),
+                item_category=str(latest_row["item_category"]),
+                history=history_list
+            ))
+        
+        # Sort alternatives by price
+        if not item_alternatives:
+            continue
+            
+        item_alternatives.sort(key=lambda x: x.price)
+        
+        grouped_data.append({
+            "premise_code": p_code,
+            "premise": p_name,
+            "premise_type": p_type,
+            "address": p_addr,
+            "state": p_state,
+            "district": p_dist,
+            "min_price": min(x.price for x in item_alternatives),
+            "last_date": max(x.date for x in item_alternatives),
+            "items": item_alternatives
+        })
+    
+    # Convert to DataFrame for easier handling with geocoding
+    grouped = pd.DataFrame(grouped_data)
+    if grouped.empty:
+        raise HTTPException(status_code=404, detail="No shops found")
 
-    top = grouped.head(max(50, req.max_results)).copy()  # compute more then we will sort by distance and limit later
+    grouped = grouped.sort_values("min_price").reset_index(drop=True)
+
+    top = grouped.head(max(50, req.max_results)).copy()  
 
     # 6) Geocoding with cache + concurrency
     cache = recommender.load_geocache()
@@ -448,44 +540,54 @@ def recommend(req: RecommendRequest):
                 cache[key] = {"lat": lat_p, "lon": lon_p, "source": src, "queried": cleaned, "ts": datetime.utcnow().isoformat()} if lat_p is not None else None
 
         # small sleep (same as original)
-        time.sleep(0.1)
+        time.sleep(0.05)
 
         d = recommender.haversine_km(user_lat, user_lon, lat_p, lon_p) if (user_lat is not None and lat_p is not None and lon_p is not None) else None
         return idx, d, lat_p, lon_p, src
 
     args_list = [ (i, row.get("address"), row.get("district"), row.get("state")) for i, row in top.iterrows() ]
+
     max_workers = min(6, max(1, len(args_list)))
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        for idx, d, lat_p, lon_p, src in ex.map(geocode_worker, args_list):
+        # We must preserve order or map back using idx
+        results = list(ex.map(geocode_worker, args_list))
+        # Sort results by idx to match 'top' dataframe rows
+        results.sort(key=lambda x: x[0])
+        
+        for idx, d, lat_p, lon_p, src in results:
             distances.append(d)
             lats.append(lat_p)
             lons.append(lon_p)
             sources.append(src)
 
-    # persist cache (same as original)
     recommender.save_geocache(cache)
 
     top["distance_km"] = distances
     top["lat"] = lats
     top["lon"] = lons
     top["geocode_source"] = sources
+    # 10) Final Sort and Truncate
+    top = top.sort_values(by=["distance_km", "min_price"], na_position="last").head(req.max_results)
 
-    # final sort: distance (ascending), then price (like the script)
-    top = top.sort_values(by=["distance_km", "min_price"], na_position="last").reset_index(drop=True)
+    # 11) Return as list of Pydantic models
+    final_results = []
+    for _, row in top.iterrows():
+        final_results.append(RecommendRow(
+            premise=row["premise"],
+            premise_type=row["premise_type"],
+            min_price=row["min_price"],
+            distance_km=row["distance_km"],
+            lat=row["lat"],
+            lon=row["lon"],
+            geocode_source=row["geocode_source"],
+            address=row["address"],
+            state=row["state"],
+            district=row["district"],
+            items=row["items"],
+            last_date=str(row["last_date"])
+        ))
 
-    # limit results
-    top = top.head(req.max_results)
-
-    # select columns for response
-    display_cols = ["premise","min_price","distance_km","lat","lon","geocode_source","address","state","district","last_date"]
-
-    # convert last_date to string where necessary
-    top = top[display_cols].copy()
-    top["last_date"] = top["last_date"].astype(str)
-
-    # Convert to list of dicts for JSON response
-    result = top.to_dict(orient="records")
-    return result
+    return final_results
 
 @app.post("/generate-recipe")
 def generate_recipe(req: RecipeRequest):
