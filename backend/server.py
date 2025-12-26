@@ -37,6 +37,18 @@ app.add_middleware(
 
 # --- MQTT & WebSocket Integration ---
 
+# Intelligent Thresholds based on Category
+CATEGORY_THRESHOLDS = {
+    "Fruits": 3,
+    "Vegetables": 2,
+    "Dairy": 2,
+    "Meat": 1,
+    "Beverages": 2,
+    "Sauces": 0.5,
+    "Leftovers": 1,
+    "Other": 1
+}
+
 # Shared state for real-time sensor data
 latest_sensor_data = {
     "temperature": 0.0,
@@ -192,13 +204,16 @@ async def analyze_image_task(img_url: str):
         now = datetime.now()
         
         for item in raw_items:
+            cat = item.get("category", "Other")
+            threshold = CATEGORY_THRESHOLDS.get(cat, CATEGORY_THRESHOLDS["Other"])
+            
             enriched_item = {
                 "id": str(uuid.uuid4()),
                 "name": item.get("name", "Unknown Item"),
-                "category": item.get("category", "Other"),
+                "category": cat,
                 "quantity": item.get("quantity", 1),
                 "status": item.get("status", "Good"),
-                "reorderThreshold": 2 
+                "reorderThreshold": threshold
             }
             enriched_items.append(enriched_item)
 
@@ -307,23 +322,17 @@ def recommend(req: RecommendRequest):
         # keep behaviour similar to original script (it printed a warning)
         pass
 
-    # 2) Determine user location if not provided
+    # 2) Use client-provided location
     user_lat = req.user_lat
     user_lon = req.user_lon
-    if user_lat is None or user_lon is None:
-        # try to call get_user_location from recommender (it was imported there)
-        try:
-            user_lat, user_lon = recommender.get_user_location()
-        except Exception:
-            # if that fails, set as None to continue (the geocoders handle that)
-            user_lat = user_lon = None
-
-    # 3) Reverse geocode to get state/district hints (try Nominatim as in your original)
+    
+    # 3) Initialize addr_info for localized area filtering
     addr_info = {"pretty": None, "state": None, "district": None}
+    
     if user_lat is not None and user_lon is not None:
         try:
             from geopy.geocoders import Nominatim as GeoNominatim
-            g = GeoNominatim(user_agent="recommender_reverse")
+            g = GeoNominatim(user_agent="smartfridge_ai_2025")
             loc_rev = g.reverse((user_lat, user_lon), exactly_one=True, timeout=8)
             if loc_rev:
                 raw_addr = loc_rev.raw.get("address", {})
@@ -332,7 +341,7 @@ def recommend(req: RecommendRequest):
                 pretty = ", ".join([raw_addr.get(k) for k in ("road","suburb","county","state","postcode","country") if raw_addr.get(k)])
                 addr_info = {"pretty": pretty, "state": state, "district": district}
         except Exception:
-            addr_info = {"pretty": None, "state": None, "district": None}
+            pass
 
     # override with hints from request if provided
     if req.state_hint:
@@ -489,6 +498,58 @@ def recipe_details(req: RecipeDetailsRequest):
 @app.post("/analyze-snapshot")
 def analyze_snapshot(req: SnapshotRequest):
     return geminiRecipe.analyze_snapshot(req.image_base64)
+
+@app.get("/api/location/name")
+def get_location_name(lat: float, lon: float):
+    """
+    Reverse geocodes coordinates to a friendly display name.
+    """
+    try:
+        from geopy.geocoders import Nominatim
+        geolocator = Nominatim(user_agent="smartfridge_ai_2025")
+        location = geolocator.reverse((lat, lon), exactly_one=True, timeout=5)
+        if location:
+            full_address = location.address
+            addr_parts = full_address.split(', ')
+            
+            # If the first part is a specific venue (like a cafe, shop, etc.), remove it
+            # Nominatim often puts the POI name as the first element
+            raw_addr = location.raw.get('address', {})
+            poi_keys = ['amenity', 'shop', 'tourism', 'leisure', 'office', 'highway']
+            poi_name = None
+            for key in poi_keys:
+                if key in raw_addr:
+                    poi_name = raw_addr[key]
+                    break
+            
+            # If the first part matches a known POI name, strip it
+            if len(addr_parts) > 1 and (poi_name and addr_parts[0].lower() == poi_name.lower()):
+                full_address = ', '.join(addr_parts[1:])
+            elif len(addr_parts) > 1 and raw_addr.get('house_number') is None and raw_addr.get('road'):
+                 # Fallback: if first part isn't 'road' or 'house_number', it's likely a POI
+                 if addr_parts[0] != raw_addr.get('road') and addr_parts[0] != raw_addr.get('postcode'):
+                     full_address = ', '.join(addr_parts[1:])
+
+            print(f"\n[Location Debug] Coordinates: {lat}, {lon}")
+            print(f"[Location Debug] Full Address (Refined): {full_address}\n")
+            
+            addr = raw_addr
+            # Try to build a concise name: Suburb/City, State
+            city = addr.get('city') or addr.get('town') or addr.get('suburb') or addr.get('county')
+            state = addr.get('state')
+            
+            concise_name = addr_parts[0]
+            if city and state:
+                concise_name = f"{city}, {state}"
+                
+            return {
+                "name": concise_name,
+                "fullAddress": full_address
+            }
+    except Exception as e:
+        print(f"Reverse geocode error: {e}")
+    
+    return {"name": "Unknown Location", "fullAddress": None}
 
 @app.get("/api/initial-state")
 async def get_initial_state():
