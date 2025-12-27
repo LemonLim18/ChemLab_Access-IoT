@@ -1067,24 +1067,21 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <div className="fixed top-0 left-0 right-0 z-50">
-        <Navbar
-          onOpenSettings={() => handleTabChange('settings')}
-          onOpenAlerts={() => handleTabChange('dashboard')}
-          notifications={notifications}
-          anomalyEvents={anomalyEvents}
-          onFetchEvents={fetchAnomalyEvents}
-          onMarkAsRead={markNotificationAsRead}
-          onClearAll={clearAllNotifications}
-          onMarkAllAsRead={markAllNotificationsAsRead}
-          unreadCount={notifications.filter(n => !n.isRead).length}
-          onToggleLocation={() => requestLocation(true)}
-          userLocation={userLocation}
-          isLocating={isLocating}
-          userName={userName || 'User'}
-        />
-      </div>
+    <div className="flex flex-col h-screen overflow-hidden">
+      <Navbar
+        onOpenSettings={() => handleTabChange('settings')}
+        notifications={notifications}
+        anomalyEvents={anomalyEvents}
+        onFetchEvents={fetchAnomalyEvents}
+        onMarkAsRead={markNotificationAsRead}
+        onClearAll={clearAllNotifications}
+        onMarkAllAsRead={markAllNotificationsAsRead}
+        unreadCount={notifications.filter(n => !n.isRead).length}
+        onToggleLocation={() => requestLocation(true)}
+        userLocation={userLocation}
+        isLocating={isLocating}
+        userName={userName || 'User'}
+      />
 
       {/* Persistent Toasts (Fade In/Out) */}
       <div className="fixed bottom-24 left-0 right-0 z-[60] flex flex-col items-center gap-2 pointer-events-none">
@@ -1102,19 +1099,18 @@ const App: React.FC = () => {
       </div>
 
       <main
-        // className="flex-1 overflow-hidden mt-16 pb-24"
-        className="flex-1 overflow-hidden mt-16 pb-24"
+        className="flex-1 overflow-hidden"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
         <div
-          className="flex transition-transform duration-500 ease-in-out h-full items-start"
+          className="flex transition-transform duration-500 ease-in-out h-full"
           style={{ transform: `translateX(-${TABS.indexOf(activeTab) * 100}%)` }}
         >
           {/* TAB 1: DASHBOARD */}
-          <div className="w-full shrink-0 p-4 space-y-6">
-            <div className="max-w-4xl mx-auto space-y-6">
+          <div className="w-full shrink-0 h-full overflow-y-auto no-scrollbar pt-4 px-4 pb-4 space-y-6">
+            <div className="max-w-4xl mx-auto space-y-6 pb-24">
               {/* Premium Location Banner */}
               {fullLocationName && (
                 <div className="card mx-2 bg-gradient-to-br from-primary/10 to-base-100 border border-primary/20 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-700">
@@ -1138,7 +1134,7 @@ const App: React.FC = () => {
               <RealtimeStatusCard data={sensors} history={sensorHistory} />
 
               <section>
-                <div className="flex justify-between items-center mb-3">
+                <div className="flex justify-between items-center mx-3 mb-3">
                   <h2 className="text-lg font-bold flex items-center gap-2">
                     <Activity size={20} className="text-error" />
                     Stock Running Low
@@ -1260,9 +1256,8 @@ const App: React.FC = () => {
           </div>
 
           {/* TAB 2: STORE FINDER */}
-          <div className="w-full shrink-0 p-4">
-            <div className="max-w-4xl mx-auto space-y-6">
-              {/* Redesigned Search Header with Full Location */}
+          <div className="w-full shrink-0 h-full overflow-y-auto no-scrollbar pt-4 px-4 pb-4">
+            <div className="max-w-4xl mx-auto space-y-6 pb-20">
               <div className="card bg-base-100 shadow-xl p-6 border border-base-200 overflow-hidden relative">
                 {/* Visual Accent */}
                 <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
@@ -1367,10 +1362,10 @@ const App: React.FC = () => {
 
               {/* Nearest Stores Row */}
               <div className="space-y-3">
-                <h3 className="font-bold text-lg flex items-center gap-2">
+                <h3 className="font-bold text-lg flex items-center gap-2 px-6">
                   <MapPin size={20} className="text-secondary" /> Nearest Stores
                 </h3>
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar min-h-[160px] relative">
+                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar px-6 min-h-[160px] relative">
                   {isSearchingStores ? (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[2px] rounded-3xl animate-in fade-in duration-300">
                       <div className="flex flex-col items-center gap-3">
@@ -1426,10 +1421,10 @@ const App: React.FC = () => {
 
               {/* Cheapest Stores Row */}
               <div className="space-y-3">
-                <h3 className="font-bold text-lg flex items-center gap-2">
+                <h3 className="font-bold text-lg flex items-center gap-2 px-6">
                   <DollarSign size={20} className="text-success" /> Best Deals & Cheapest
                 </h3>
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar min-h-[160px] relative">
+                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar px-6 min-h-[160px] relative">
                   {isSearchingStores ? (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[2px] rounded-3xl animate-in fade-in duration-300">
                       <div className="flex flex-col items-center gap-3">
@@ -1483,8 +1478,8 @@ const App: React.FC = () => {
           </div>
 
           {/* TAB 3: INVENTORY */}
-          <div className="w-full shrink-0 pt-0 px-4 pb-4">
-            <div className="max-w-4xl mx-auto space-y-6">
+          <div className="w-full shrink-0 h-full overflow-y-auto no-scrollbar pt-4 px-4 pb-4">
+            <div className="max-w-4xl mx-auto space-y-6 pb-10">
               <div className="flex justify-between items-center bg-base-100/50 backdrop-blur shadow-sm p-4 rounded-2xl sticky top-0 z-40">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <Package className="text-primary" /> Inventory
@@ -1584,8 +1579,8 @@ const App: React.FC = () => {
           </div>
 
           {/* TAB 4: CHEF AI */}
-          <div className="w-full shrink-0 p-4">
-            <div className="max-w-4xl mx-auto space-y-6">
+          <div className="w-full shrink-0 h-full overflow-y-auto no-scrollbar pt-4 px-4 pb-4">
+            <div className="max-w-4xl mx-auto space-y-6 pb-10">
               {selectedRecipe ? (
                 <div className="card bg-base-100 shadow-2xl border border-base-200 animate-in zoom-in duration-300">
                   <div className="card-body p-4 sm:p-8">
@@ -1695,8 +1690,8 @@ const App: React.FC = () => {
           </div>
 
           {/* TAB 5: TO-PURCHASE */}
-          <div className="w-full shrink-0 p-4">
-            <div className="max-w-4xl mx-auto space-y-6">
+          <div className="w-full shrink-0 h-full overflow-y-auto no-scrollbar pt-4 px-4 pb-4">
+            <div className="max-w-4xl mx-auto space-y-6 pb-10">
               <div className="card bg-base-100 shadow-xl border border-base-200">
                 <div className="card-body p-6">
                   <h2 className="text-2xl font-black mb-4 flex items-center gap-2">
@@ -1788,8 +1783,8 @@ const App: React.FC = () => {
           </div>
 
           {/* TAB 6: SETTINGS */}
-          <div className="w-full shrink-0 p-4">
-            <div className="max-w-4xl mx-auto space-y-6">
+          <div className="w-full shrink-0 h-full overflow-y-auto no-scrollbar pt-4 px-4 pb-4">
+            <div className="max-w-4xl mx-auto space-y-6 pb-10">
               <div className="card bg-base-100 shadow-xl overflow-hidden border border-base-200">
                 <div className="bg-primary h-24 w-full"></div>
                 <div className="card-body p-6 -mt-12">

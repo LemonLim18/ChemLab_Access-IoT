@@ -5,7 +5,6 @@ import type { Notification } from '../types';
 
 interface NavbarProps {
   onOpenSettings: () => void;
-  onOpenAlerts: () => void;
   notifications: Notification[];
   anomalyEvents?: any[];
   onFetchEvents?: () => void;
@@ -21,7 +20,6 @@ interface NavbarProps {
 
 const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
-  onOpenAlerts,
   notifications,
   anomalyEvents = [],
   onFetchEvents,
@@ -111,19 +109,31 @@ const Navbar: React.FC<NavbarProps> = ({
           </button>
           <div tabIndex={0} className="dropdown-content z-[100] card card-compact w-screen sm:w-96 left-0 sm:left-auto sm:right-0 fixed sm:absolute p-2 shadow-2xl bg-base-100 border-y sm:border border-base-content/10 top-[64px] sm:top-auto sm:mt-2 rounded-none sm:rounded-2xl">
             <div className="card-body">
-              <div className="flex items-center justify-between border-b border-base-content/5 pb-2">
-                <h3 className="font-black text-xs uppercase tracking-widest opacity-50 flex items-center gap-2">
-                  {view === 'notifications' ? 'Notifications' : 'Activity Log'}
-                  {view === 'notifications' && unreadCount > 0 && <span className="badge badge-error badge-xs text-[8px]">{unreadCount}</span>}
-                </h3>
-                <div className="flex gap-1">
-                  {view === 'notifications' ? (
-                    <>
-                      <button onClick={onMarkAllAsRead} className="btn btn-ghost btn-xs text-[10px] font-bold text-primary">Mark all as read</button>
-                      <button onClick={onClearAll} className="btn btn-ghost btn-xs text-[10px] font-bold text-error">Clear all</button>
-                    </>
-                  ) : (
-                    <button onClick={toggleView} className="btn btn-ghost btn-xs text-[10px] font-bold text-primary">Back to Alerts</button>
+              <div className="flex flex-col gap-3 border-b border-base-content/5 pb-3">
+                <div className="tabs tabs-boxed bg-base-200/50 p-1 flex">
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setView('notifications'); }}
+                    className={`flex-1 tab tab-sm font-black transition-all duration-300 ${view === 'notifications' ? 'tab-active !bg-primary !text-primary-content shadow-sm' : 'opacity-50 hover:opacity-100'}`}
+                  >
+                    ALERTS
+                  </button>
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleView(); }}
+                    className={`flex-1 tab tab-sm font-black transition-all duration-300 ${view === 'logs' ? 'tab-active !bg-primary !text-primary-content shadow-sm' : 'opacity-50 hover:opacity-100'}`}
+                  >
+                    HISTORY
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="font-black text-[10px] uppercase tracking-widest opacity-40">
+                    {view === 'notifications' ? `Recent Updates (${unreadCount})` : 'Anomaly Events'}
+                  </h3>
+                  {view === 'notifications' && notifications.length > 0 && (
+                    <div className="flex gap-2">
+                      <button onClick={onMarkAllAsRead} className="text-[10px] font-bold text-primary hover:underline">Mark all</button>
+                      <button onClick={onClearAll} className="text-[10px] font-bold text-error hover:underline">Clear all</button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -219,13 +229,6 @@ const Navbar: React.FC<NavbarProps> = ({
                 )}
               </div>
 
-              {view === 'notifications' && notifications.length > 0 && (
-                <div className="border-t border-base-content/5 pt-2 text-center">
-                  <button onClick={toggleView} className="btn btn-ghost btn-xs text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100">
-                    View Activity Log
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </div>
