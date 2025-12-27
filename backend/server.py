@@ -56,6 +56,7 @@ latest_sensor_data = {
     "humidity": 0,
     "voc": 0,
     "doorOpen": False,
+    "freezerStatus": "Frozen",
     "moistureAlert": False,
     "latest_image_url": None,
     "lastCaptureTime": None,
@@ -160,8 +161,9 @@ def on_message(client, userdata, msg):
             update_broadcast = True
 
         elif topic == "fridge/freeze":
-            # Simplified status handler (Frozen / Defreeze)
+            # Explicit status handler (Frozen / Defreeze)
             status = payload.get("status", "Frozen")
+            latest_sensor_data["freezerStatus"] = status
             latest_sensor_data["moistureAlert"] = (status == "Defreeze")
             
             latest_sensor_data["lastUpdated"] = datetime.now().isoformat()
@@ -506,7 +508,8 @@ def recommend(req: RecommendRequest):
 
     grouped = grouped.sort_values("min_price").reset_index(drop=True)
 
-    top = grouped.head(max(50, req.max_results)).copy()  
+    # Increase candidate pool to 200 to ensure we find closer stores even if they are slightly more expensive
+    top = grouped.head(max(200, req.max_results)).copy()  
 
     # 6) Geocoding with cache + concurrency
     cache = recommender.load_geocache()
@@ -520,7 +523,7 @@ def recommend(req: RecommendRequest):
     # worker uses the same geocoding strategy as the original recommender.main
     def geocode_worker(args):
         idx, raw_addr, district, state = args
-        key_preview = (raw_addr or "")[:80].replace("\n", " ")
+        key_preview = (raw_addr or "")[:50].replace("\n", " ")
         lat_p = lon_p = None
         src = None
 
@@ -583,6 +586,13 @@ def recommend(req: RecommendRequest):
             lats.append(lat_p)
             lons.append(lon_p)
             sources.append(src)
+            
+    # Print some top results with distances for debugging
+    print(f"[Search Engine] Geocoded {len(results)} stores. Top 5 proximity results:")
+    top["distance_km"] = distances
+    top_sorted = top.sort_values(by="distance_km").head(5)
+    for _, r in top_sorted.iterrows():
+        print(f"  > Dist: {r['distance_km']:.2f}km | Price: RM{r['min_price']:.2f} | {r['premise']}")
 
     recommender.save_geocache(cache)
 

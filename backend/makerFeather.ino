@@ -5,7 +5,7 @@
 #define WIFI_PASSWORD "Elephant18!"
 
 // MQTT Config
-const char* mqtt_server = "34.27.88.37";
+const char* mqtt_server = "136.111.11.0";
 const int mqtt_port = 1883;
 const char* mqtt_user = "smartfridge";
 const char* mqtt_pass = "password";
@@ -63,7 +63,7 @@ void loop() {
 
   unsigned long now = millis();
   // Publish every 60 seconds (1 minute)
-  if (now - lastMsg > 60000) {
+  if (now - lastMsg > 10000) {
     lastMsg = now;
     
     // read analog voltage (0–4095 on ESP32 ADC)

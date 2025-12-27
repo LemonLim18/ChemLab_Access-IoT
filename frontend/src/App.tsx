@@ -89,6 +89,18 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
+    // Background Lock Logic
+    const shouldLock = activeStoreModal || isCameraOpen || isAnalyzing || isLoadingDetails || selectedRecipe;
+    if (shouldLock) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    }
+  }, [activeStoreModal, isCameraOpen, isAnalyzing, isLoadingDetails, selectedRecipe]);
+
+  useEffect(() => {
     const authChannel = new BroadcastChannel('supabase_auth_sync');
 
     // Check initial session
@@ -467,6 +479,10 @@ const App: React.FC = () => {
   const handleStoreSearch = async (overrideQuery?: string) => {
     const query = overrideQuery || storeSearchQuery;
     if (!query.trim()) return;
+
+    // Clear old results immediately to prevent "ghost" data
+    setNearestStores([]);
+    setCheapestStores([]);
     setIsSearchingStores(true);
 
     try {
@@ -1025,7 +1041,7 @@ const App: React.FC = () => {
                         className={`btn btn-xs rounded-full border-dashed normal-case font-bold transition-all ${storeSearchQuery.toLowerCase() === item.name.toLowerCase() ? 'btn-error text-white border-solid shadow-md' : 'btn-ghost bg-error/5 text-error border-error/20 hover:bg-error/10'}`}
                         onClick={() => {
                           setStoreSearchQuery(item.name);
-                          setTimeout(() => handleStoreSearch(), 50);
+                          handleStoreSearch(item.name);
                         }}
                       >
                         {item.name}
@@ -1096,7 +1112,7 @@ const App: React.FC = () => {
                     </div>
                   )) : (
                     <div className="p-10 bg-base-100 rounded-3xl border border-dashed border-base-300 w-full text-center opacity-40">
-                      {isSearchingStores ? "Searching for nearest options..." : "Search for something to see nearby stores."}
+                      {isSearchingStores ? `Finding nearest ${storeSearchQuery || 'options'}...` : "Search for something to see nearby stores."}
                     </div>
                   )}
                 </div>
@@ -1142,7 +1158,7 @@ const App: React.FC = () => {
                     </div>
                   )) : (
                     <div className="p-10 bg-base-100 rounded-3xl border border-dashed border-base-300 w-full text-center opacity-40">
-                      {isSearchingStores ? "Searching for best deals..." : "Discover the best deals in your area."}
+                      {isSearchingStores ? `Finding best deals for ${storeSearchQuery || 'items'}...` : "Discover the best deals in your area."}
                     </div>
                   )}
                 </div>

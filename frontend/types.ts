@@ -22,6 +22,7 @@ export interface SensorData {
   humidity: number;
   voc: number; // MQ2/VOC level
   doorOpen: boolean;
+  freezerStatus: string;
   moistureAlert: boolean;
   latest_image_url?: string;
   lastCaptureTime?: string;

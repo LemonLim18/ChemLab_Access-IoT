@@ -62,23 +62,21 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }
             </div>
           </div>
 
-          {/* Defreezing Anomaly */}
-          <div className={`flex flex-col gap-1 p-3 rounded-2xl transition-colors ${data.temperature > 7 || data.moistureAlert ? 'bg-error/10 border border-error/20' : 'bg-base-200/50'}`}>
+          {/* Freezer Status */}
+          <div className={`flex flex-col gap-1 p-3 rounded-2xl transition-colors ${data.freezerStatus === 'Defreeze' ? 'bg-error/10 border border-error/20' : 'bg-base-200/50'}`}>
             <div className="flex items-center justify-between">
-              <Snowflake size={18} className={data.temperature > 7 || data.moistureAlert ? "text-error" : "text-primary"} />
-              {(data.temperature > 7 || data.moistureAlert) && (
-                <span className="text-[10px] text-error font-bold uppercase animate-pulse">
-                  {data.moistureAlert && data.temperature > 7 ? 'Critical' : 'Warning'}
-                </span>
+              <Snowflake size={18} className={data.freezerStatus === 'Defreeze' ? "text-error" : "text-success"} />
+              {data.freezerStatus === 'Defreeze' && (
+                <span className="animate-pulse text-[10px] text-error font-bold uppercase">Melting</span>
               )}
             </div>
-            <div className="text-xl font-bold">
-              {data.moistureAlert && data.temperature > 7 ? 'MELTING' : data.temperature > 7 ? 'Defrozen' : data.moistureAlert ? 'WET' : 'Frozen'}
-            </div>
-            <div className="text-xs text-base-content/50 flex justify-between items-center">
-              <span>Frost Monitor</span>
-              {data.moistureAlert && <AlertTriangle size={12} className="text-error" />}
-            </div>
+            <div className="text-lg font-bold">{data.freezerStatus || 'Frozen'}</div>
+            <div className="text-xs text-base-content/50">Freezer Status</div>
+            {data.moistureAlert && (
+              <div className="flex items-center gap-1 text-[10px] text-error mt-1 font-bold">
+                <AlertTriangle size={10} /> {data.freezerStatus === 'Defreeze' ? 'Leak Detected' : 'Humidity Alert'}
+              </div>
+            )}
           </div>
 
           {/* Door Status */}
@@ -89,11 +87,6 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }
             </div>
             <div className="text-lg font-bold">{data.doorOpen ? 'Open' : 'Closed'}</div>
             <div className="text-xs text-base-content/50">Door State</div>
-            {data.moistureAlert && (
-              <div className="flex items-center gap-1 text-[10px] text-error mt-1 font-bold">
-                <AlertTriangle size={10} /> Leak Detected
-              </div>
-            )}
           </div>
         </div>
       </div>

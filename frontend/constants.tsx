@@ -42,6 +42,7 @@ export const INITIAL_SENSORS: SensorData = {
   humidity: 42,
   voc: 120,
   doorOpen: false,
+  freezerStatus: 'Frozen',
   moistureAlert: false,
   lastUpdated: new Date().toISOString()
 };
