@@ -79,6 +79,11 @@ const App: React.FC = () => {
     return localStorage.getItem('smart_fridge_full_location_name');
   });
   const [isLocating, setIsLocating] = useState(false);
+  const [searchCache, setSearchCache] = useState<Record<string, {
+    results: StoreResult[],
+    location: { lat: number, lng: number } | null,
+    timestamp: number
+  }>>({});
 
   // Profile / Settings State
   const [userEmail, setUserEmail] = useState<string>('');
@@ -483,6 +488,26 @@ const App: React.FC = () => {
     // Clear old results immediately to prevent "ghost" data
     setNearestStores([]);
     setCheapestStores([]);
+
+    // 1. Check Cache
+    const cacheKey = query.trim().toLowerCase();
+    const cached = searchCache[cacheKey];
+    if (cached) {
+      const locMatch = !userLocation || (
+        cached.location &&
+        Math.abs(cached.location.lat - userLocation.lat) < 0.001 &&
+        Math.abs(cached.location.lng - userLocation.lng) < 0.001
+      );
+
+      if (locMatch) {
+        console.log(`[Search] Cache hit for "${query}"`);
+        const results = cached.results;
+        setNearestStores(results.slice(0, 5));
+        setCheapestStores([...results].sort((a, b) => a.min_price - b.min_price).slice(0, 5));
+        return;
+      }
+    }
+
     setIsSearchingStores(true);
 
     try {
@@ -494,6 +519,16 @@ const App: React.FC = () => {
 
       setNearestStores(results.slice(0, 5));
       setCheapestStores(results.sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
+
+      // 2. Save to Cache
+      setSearchCache(prev => ({
+        ...prev,
+        [cacheKey]: {
+          results,
+          location: userLocation ? { lat: userLocation.lat, lng: userLocation.lng } : null,
+          timestamp: Date.now()
+        }
+      }));
 
       if (results.length === 0) {
         Swal.fire({
@@ -914,11 +949,27 @@ const App: React.FC = () => {
                     <h3 className="card-title text-[10px] text-primary font-black uppercase tracking-widest flex items-center gap-2">
                       <DollarSign size={14} /> Best Local Deal
                     </h3>
-                    <div className="mt-2 h-20 flex flex-col justify-center">
+                    <div className="mt-2 flex flex-col gap-3">
                       {cheapestStores.length > 0 ? (
                         <>
-                          <p className="font-black text-xl text-base-content/90 line-clamp-1">{cheapestStores[0].premise}</p>
-                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <div>
+                            <p className="font-black text-xl text-base-content/90 line-clamp-1">{cheapestStores[0].premise}</p>
+                          </div>
+
+                          <div className="h-24 w-full rounded-2xl overflow-hidden border border-primary/10 shadow-inner relative group/map">
+                            <iframe
+                              width="100%"
+                              height="100%"
+                              frameBorder="0"
+                              style={{ border: 0 }}
+                              src={`https://maps.google.com/maps?q=${encodeURIComponent(cheapestStores[0].premise + ' ' + cheapestStores[0].address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
+                              allowFullScreen
+                              className="opacity-80 group-hover/map:opacity-100 transition-opacity"
+                            ></iframe>
+                            <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-black/5 rounded-2xl"></div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="badge badge-primary badge-sm font-bold">RM {cheapestStores[0].min_price.toFixed(2)}</span>
                             <span className="text-[10px] font-black text-primary/60">{cheapestStores[0].distance_km?.toFixed(1) || '?'} km away</span>
                           </div>
@@ -940,11 +991,27 @@ const App: React.FC = () => {
                     <h3 className="card-title text-[10px] text-secondary font-black uppercase tracking-widest flex items-center gap-2">
                       <MapPin size={14} /> Nearest Option
                     </h3>
-                    <div className="mt-2 h-20 flex flex-col justify-center">
+                    <div className="mt-2 flex flex-col gap-3">
                       {nearestStores.length > 0 ? (
                         <>
-                          <p className="font-black text-xl text-base-content/90 line-clamp-1">{nearestStores[0].premise}</p>
-                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <div>
+                            <p className="font-black text-xl text-base-content/90 line-clamp-1">{nearestStores[0].premise}</p>
+                          </div>
+
+                          <div className="h-24 w-full rounded-2xl overflow-hidden border border-secondary/10 shadow-inner relative group/map">
+                            <iframe
+                              width="100%"
+                              height="100%"
+                              frameBorder="0"
+                              style={{ border: 0 }}
+                              src={`https://maps.google.com/maps?q=${encodeURIComponent(nearestStores[0].premise + ' ' + nearestStores[0].address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
+                              allowFullScreen
+                              className="opacity-80 group-hover/map:opacity-100 transition-opacity"
+                            ></iframe>
+                            <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-black/5 rounded-2xl"></div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="badge badge-secondary badge-sm font-bold">{nearestStores[0].distance_km?.toFixed(1) || '?'} km</span>
                             <span className="text-[10px] font-black text-secondary/60">RM {nearestStores[0].min_price.toFixed(2)}</span>
                           </div>
@@ -1615,7 +1682,7 @@ const App: React.FC = () => {
                   height="100%"
                   frameBorder="0"
                   style={{ border: 0 }}
-                  src={`https://maps.google.com/maps?q=${activeStoreModal.lat},${activeStoreModal.lon}&z=14&output=embed`}
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent(activeStoreModal.premise + ' ' + activeStoreModal.address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
                   allowFullScreen
                 ></iframe>
               </div>
