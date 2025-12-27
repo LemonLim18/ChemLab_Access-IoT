@@ -150,6 +150,80 @@ def sync_inventory_snapshot(items: List[Dict[str, Any]]):
     except Exception as e:
         print(f"[Supabase] Error during snapshot sync: {e}")
 
+def get_shopping_list() -> List[Dict[str, Any]]:
+    """
+    Retrieves the shopping list for the current device.
+    """
+    try:
+        response = supabase.table("shopping_list").select("*").eq("device_id", DEVICE_ID).execute()
+        items = []
+        for row in response.data:
+            items.append({
+                "id": row["id"],
+                "name": row["name"],
+                "source": row["source"],
+                "completed": bool(row.get("completed")) # Treat any timestamp as True, null as False
+            })
+        return items
+    except Exception as e:
+        print(f"[Supabase] Error fetching shopping list: {e}")
+        return []
+
+def save_shopping_item(item: Dict[str, Any]):
+    """
+    Upserts a shopping list item.
+    """
+    try:
+        item_name = str(item.get("name", "")).strip()
+        print(f"[Supabase] Processing '{item_name}' (Payload ID: {item.get('id')})")
+        
+        # 1. FIND EXISTING RECORD (The ultimate source of truth for IDs/Duplicates)
+        # We search by name and device. If found, we use THAT ID for the upsert/update.
+        target_id = None
+        if item_name:
+            existing = supabase.table("shopping_list") \
+                .select("id") \
+                .eq("device_id", DEVICE_ID) \
+                .ilike("name", item_name) \
+                .execute()
+            
+            if existing.data:
+                # If multiple (though there shouldn't be), we pick the first one
+                target_id = existing.data[0]["id"]
+                print(f"  > Found existing record. Using database ID: {target_id}")
+
+        # 2. PREPARE DATA
+        data = {
+            "device_id": DEVICE_ID,
+            "name": item_name,
+            "source": item.get("source", "manual"),
+            "completed": datetime.now().isoformat() if item.get("completed") else None
+        }
+        
+        # 3. ATTACH ID FOR UPDATE
+        # Only attach if we found it in the DB. This prevents temp string IDs 
+        # from the frontend from causing type errors or accidental inserts.
+        if target_id is not None:
+            data["id"] = target_id
+            
+        print(f"  > Executing upsert with target_id: {target_id}, payload: {data}")
+        response = supabase.table("shopping_list").upsert(data).execute()
+        return response
+    except Exception as e:
+        print(f"[Supabase] Error saving shopping item: {e}")
+        return None
+
+def delete_shopping_item(item_id: str):
+    """
+    Deletes an item from the shopping list.
+    """
+    try:
+        supabase.table("shopping_list").delete().eq("id", item_id).execute()
+        return True
+    except Exception as e:
+        print(f"[Supabase] Error deleting shopping item: {e}")
+        return False
+
 def sync_inventory_to_supabase(items: List[Dict[str, Any]], merge: bool = False):
     """
     Syncs inventory. 

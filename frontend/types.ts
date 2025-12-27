@@ -26,6 +26,7 @@ export interface SensorData {
   latest_image_url?: string;
   lastCaptureTime?: string;
   inventory?: any[];
+  shopping_list?: any[];
   lastUpdated: string;
 }
 
@@ -82,7 +83,7 @@ export interface StoreResult {
 }
 
 export interface BuyItem {
-  id: string;
+  id: string | number;
   name: string;
   source: 'low-stock' | 'manual';
   completed: boolean;

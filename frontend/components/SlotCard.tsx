@@ -44,7 +44,7 @@ const SlotCard: React.FC<SlotCardProps> = ({ item, onEdit, onRemove }) => {
 
       {/* Main Info */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mb-2">
           <h3 className="font-bold text-sm truncate">{item.name}</h3>
           <span className={`badge badge-xs ${getStatusColor(item.status)}`}>{item.status}</span>
           {isLow && (
@@ -53,21 +53,30 @@ const SlotCard: React.FC<SlotCardProps> = ({ item, onEdit, onRemove }) => {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-1">
-          <div className="flex-1 h-1.5 bg-base-200 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full ${isLow ? 'bg-error' : 'bg-primary'}`}
-              style={{ width: `${Math.min(100, (item.quantity / (item.reorderThreshold || 2)) * 100)}%` }}
-            />
+
+        <div className="flex-1 h-2 bg-base-200 rounded-full overflow-hidden mb-1">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${isLow ? 'bg-error' : 'bg-primary'}`}
+            style={{ width: `${Math.min(100, (item.quantity / (item.reorderThreshold || 1)) * 100)}%` }}
+          />
+        </div>
+
+        <div className="flex justify-between items-center px-0.5">
+          <div className="flex items-center gap-1 opacity-40 text-[9px] font-black uppercase tracking-tighter">
+            <span>Threshold</span>
+            <span className="badge badge-ghost badge-xs h-3 text-[8px] px-1 font-black">{item.reorderThreshold}</span>
           </div>
-          <span className={`text-[10px] font-medium shrink-0 text-right ${isLow ? 'text-error font-bold' : 'opacity-60'}`}>
-            {item.quantity}
-          </span>
+          <div className="flex items-baseline gap-1">
+            <span className={`text-xl font-black tabular-nums transition-colors ${isLow ? 'text-error' : 'text-primary'}`}>
+              {item.quantity}
+            </span>
+            <span className="text-[10px] opacity-30 font-bold">/ {item.reorderThreshold}</span>
+          </div>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-1 shrink-0 ml-4">
         <button
           onClick={() => onEdit(item)}
           className="btn btn-ghost btn-sm btn-square"

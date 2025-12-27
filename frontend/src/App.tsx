@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Swal from 'sweetalert2';
-import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Settings, Plus, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils, List, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils, List, ChevronRight, Bell } from 'lucide-react';
 
 import type { FridgeItem, SensorData, Notification, Recipe, StoreResult, BuyItem } from '../types';
 import { FreshnessStatus } from '../types';
@@ -9,6 +9,8 @@ import Navbar from '../components/Navbar';
 import RealtimeStatusCard from '../components/RealtimeStatusCard';
 import SlotCard from '../components/SlotCard';
 import CameraModal from '../components/CameraModal';
+import Auth from '../components/Auth';
+import { supabase } from './lib/supabaseClient';
 import {
   getRecipeSuggestions,
   getRecipeDetails,
@@ -45,6 +47,8 @@ const App: React.FC = () => {
   const [isLoadingRecipes, setIsLoadingRecipes] = useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [session, setSession] = useState<any>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
 
   const [buyList, setBuyList] = useState<BuyItem[]>([]);
   const [manualBuyInput, setManualBuyInput] = useState('');
@@ -67,9 +71,72 @@ const App: React.FC = () => {
   void setNearestStores;
   void setCheapestStores;
   const [isSearchingStores, setIsSearchingStores] = useState(false);
-  const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(null);
-  const [fullLocationName, setFullLocationName] = useState<string | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(() => {
+    const cached = localStorage.getItem('smart_fridge_user_location');
+    return cached ? JSON.parse(cached) : null;
+  });
+  const [fullLocationName, setFullLocationName] = useState<string | null>(() => {
+    return localStorage.getItem('smart_fridge_full_location_name');
+  });
   const [isLocating, setIsLocating] = useState(false);
+
+  // Profile / Settings State
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [userName, setUserName] = useState<string>('');
+  const [userPhone, setUserPhone] = useState<string>('');
+  const [emailNotifications, setEmailNotifications] = useState<boolean>(() => {
+    return localStorage.getItem('smart_fridge_email_enabled') === 'true';
+  });
+
+  useEffect(() => {
+    const authChannel = new BroadcastChannel('supabase_auth_sync');
+
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.user) {
+        if (session.user.email) setUserEmail(session.user.email);
+        if (session.user.user_metadata) {
+          setUserName(session.user.user_metadata.username || session.user.user_metadata.display_name || session.user.user_metadata.full_name || '');
+          if (session.user.user_metadata.phone) setUserPhone(session.user.user_metadata.phone);
+        }
+      }
+      setIsAuthChecking(false);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+      setSession(session);
+      if (session?.user) {
+        if (session.user.email) setUserEmail(session.user.email);
+        if (session.user.user_metadata) {
+          setUserName(session.user.user_metadata.username || session.user.user_metadata.display_name || session.user.user_metadata.full_name || '');
+          if (session.user.user_metadata.phone) setUserPhone(session.user.user_metadata.phone);
+        }
+
+        // Notify other tabs if this was a login event (like from email confirmation)
+        if (_event === 'SIGNED_IN') {
+          authChannel.postMessage({ type: 'AUTH_SUCCESS', session });
+        }
+      }
+    });
+
+    // Listen for messages from other tabs
+    authChannel.onmessage = (event) => {
+      if (event.data.type === 'AUTH_SUCCESS') {
+        setSession(event.data.session);
+        // Clean up the URL if we were on a redirect
+        if (window.location.hash || window.location.search) {
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+      }
+    };
+
+    return () => {
+      subscription.unsubscribe();
+      authChannel.close();
+    };
+  }, []);
 
   // Swipe Gesture State
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -181,6 +248,11 @@ const App: React.FC = () => {
         if (data.temperature !== undefined) {
           setSensors(data);
         }
+
+        if (data.shopping_list) {
+          console.log('[Startup] Hydrating shopping list:', data.shopping_list.length, 'items');
+          setBuyList(data.shopping_list);
+        }
       } catch (error) {
         console.error('[Startup] Failed to fetch initial state:', error);
       }
@@ -221,6 +293,10 @@ const App: React.FC = () => {
         // Initial load hydration: if message contains inventory, use it
         if (newData.inventory && Array.isArray(newData.inventory)) {
           setInventory(newData.inventory);
+        }
+
+        if (newData.shopping_list && Array.isArray(newData.shopping_list)) {
+          setBuyList(newData.shopping_list);
         }
 
         setSensorHistory(prev => {
@@ -284,6 +360,7 @@ const App: React.FC = () => {
         const result = await getLocationName(userLocation.lat, userLocation.lng);
         console.log("[Location Debug] FULL ADDRESS:", result.fullAddress);
         setFullLocationName(result.fullAddress);
+        localStorage.setItem('smart_fridge_full_location_name', result.fullAddress);
 
         // 2. Auto-trigger search for low stock items if no query is set
         if (!storeSearchQuery.trim()) {
@@ -304,53 +381,61 @@ const App: React.FC = () => {
     }
   }, [userLocation]); // Re-run when location is synced
 
-  const requestLocation = useCallback((isManual: boolean = false) => {
-    if (navigator.geolocation) {
-      if (!isManual) setIsLocating(true);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          console.log("[Location Debug] Raw Coordinates:", {
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            accuracy: `${pos.coords.accuracy} meters`
-          });
-          setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          setIsLocating(false);
-          // Toast for success
-          Swal.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'success',
-            title: 'Location sync complete',
-            showConfirmButton: false,
-            timer: 2000
-          });
-        },
-        (err) => {
-          console.error("Location error", err);
-          setIsLocating(false);
-          if (isManual) {
-            Swal.fire({
-              title: 'Access Denied',
-              text: "We couldn't get your location. Please check your browser permissions.",
-              icon: 'error',
-              customClass: { popup: 'rounded-2xl border border-base-content/10' }
+  const requestLocation = useCallback((isManual: boolean = false): Promise<{ lat: number, lng: number } | null> => {
+    return new Promise((resolve) => {
+      if (navigator.geolocation) {
+        if (!isManual) setIsLocating(true);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            console.log("[Location Debug] Raw Coordinates:", {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: `${pos.coords.accuracy} meters`
             });
+            setUserLocation(loc);
+            localStorage.setItem('smart_fridge_user_location', JSON.stringify(loc));
+            setIsLocating(false);
+            // Toast for success
+            Swal.fire({
+              toast: true,
+              position: 'top-end',
+              icon: 'success',
+              title: 'Location sync complete',
+              showConfirmButton: false,
+              timer: 2000
+            });
+            resolve(loc);
+          },
+          (err) => {
+            console.error("Location error", err);
+            setIsLocating(false);
+            if (isManual) {
+              Swal.fire({
+                title: 'Access Denied',
+                text: "We couldn't get your location. Please check your browser permissions.",
+                icon: 'error',
+                customClass: { popup: 'rounded-2xl border border-base-content/10' }
+              });
+            }
+            resolve(null);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
           }
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
-        }
-      );
-    }
+        );
+      } else {
+        resolve(null);
+      }
+    });
   }, []);
 
-  const promptForLocation = async () => {
+  const promptForLocation = async (): Promise<{ lat: number, lng: number } | null> => {
     const result = await Swal.fire({
       title: 'Find Local Deals?',
-      text: "Grant location access to see the cheapest groceries and nearest stores synchronized with your fridge!",
+      text: "Grant location access to see store recommendations!",
       icon: 'question',
       iconColor: 'var(--color-primary)',
       showCancelButton: true,
@@ -366,24 +451,27 @@ const App: React.FC = () => {
     });
 
     if (result.isConfirmed) {
-      requestLocation(true);
+      return await requestLocation(true);
     }
+    return null;
   };
 
-  const handleTabChange = (tab: string) => {
+  const handleTabChange = (tab: string, skipLocationPrompt: boolean = false) => {
     setActiveTab(tab);
-    if ((tab === 'shop' || tab === 'search') && !userLocation) {
+    // if ((tab === 'shop' || tab === 'search') && !userLocation) {
+    if (tab === 'search' && !userLocation && !skipLocationPrompt) {
       promptForLocation();
     }
   };
 
-  const handleStoreSearch = async () => {
-    if (!storeSearchQuery.trim()) return;
+  const handleStoreSearch = async (overrideQuery?: string) => {
+    const query = overrideQuery || storeSearchQuery;
+    if (!query.trim()) return;
     setIsSearchingStores(true);
 
     try {
       const results = await searchStores(
-        storeSearchQuery,
+        query,
         userLocation?.lat,
         userLocation?.lng
       );
@@ -406,6 +494,25 @@ const App: React.FC = () => {
     } finally {
       setIsSearchingStores(false);
     }
+  };
+
+  const handleQuickSearch = async (itemName: string) => {
+    setStoreSearchQuery(itemName);
+
+    // 1. Check location first (STAY ON SHOP TAB)
+    let currentLoc = userLocation;
+    if (!currentLoc) {
+      currentLoc = await promptForLocation();
+      if (!currentLoc) return; // User cancelled or denied
+    }
+
+    // 2. Only after location is READY, transition to search
+    handleTabChange('search', true);
+
+    // 3. Perform search after tab slide starts
+    setTimeout(() => {
+      handleStoreSearch(itemName);
+    }, 600);
   };
 
   const handleCapture = async (base64: string) => {
@@ -512,41 +619,107 @@ const App: React.FC = () => {
   };
 
   const editItem = async (item: FridgeItem) => {
-    const { value: newName } = await Swal.fire({
-      title: 'Update Name',
-      input: 'text',
-      inputLabel: `Rename ${item.name}`,
-      inputValue: item.name,
+    const { value: formValues } = await Swal.fire({
+      title: 'Edit Item',
+      html: `
+        <div class="flex flex-col gap-4 text-left px-2">
+          <div>
+            <label class="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">Item Name</label>
+            <input id="swal-input1" class="input input-bordered w-full rounded-xl mt-1 font-bold" value="${item.name}">
+          </div>
+          <div>
+            <label class="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">Reorder Threshold (Detect low stock below this)</label>
+            <input id="swal-input2" type="number" class="input input-bordered w-full rounded-xl mt-1 font-black tabular-nums" value="${item.reorderThreshold}">
+          </div>
+        </div>
+      `,
+      focusConfirm: false,
       showCancelButton: true,
-      confirmButtonText: 'Save Changes',
+      confirmButtonText: 'Update Stock info',
       customClass: {
-        popup: 'rounded-3xl p-6 border border-base-content/10 shadow-2xl',
-        confirmButton: 'btn btn-primary px-8 rounded-xl mr-2',
-        cancelButton: 'btn btn-ghost px-8 rounded-xl',
-        input: 'input input-bordered w-full max-w-xs rounded-xl mt-4'
+        popup: 'rounded-3xl p-8 border border-base-content/10 shadow-3xl bg-base-100',
+        confirmButton: 'btn btn-primary px-10 rounded-2xl mr-2 shadow-lg shadow-primary/20',
+        cancelButton: 'btn btn-ghost px-8 rounded-2xl'
       },
       buttonsStyling: false,
-      inputValidator: (value) => {
-        if (!value) return 'Name cannot be empty!';
-        return null;
+      preConfirm: () => {
+        const name = (document.getElementById('swal-input1') as HTMLInputElement).value;
+        const threshold = parseInt((document.getElementById('swal-input2') as HTMLInputElement).value);
+
+        if (!name) {
+          Swal.showValidationMessage('Item name is required!');
+          return false;
+        }
+        if (isNaN(threshold) || threshold < 0) {
+          Swal.showValidationMessage('Please enter a valid threshold number!');
+          return false;
+        }
+
+        return { name, threshold };
       }
     });
 
-    if (newName) {
-      setInventory(prev => prev.map(i => i.id === item.id ? { ...i, name: newName } : i));
+    if (formValues) {
+      setInventory(prev => prev.map(i => i.id === item.id ? {
+        ...i,
+        name: formValues.name,
+        reorderThreshold: formValues.threshold
+      } : i));
+
       Swal.fire({
         toast: true,
         position: 'top-end',
         icon: 'success',
-        title: 'Name updated!',
+        title: 'Inventory updated!',
         showConfirmButton: false,
-        timer: 2000,
+        timer: 1500,
         timerProgressBar: true
       });
     }
   };
 
-  const addToBuyList = (name: string, source: 'low-stock' | 'manual' = 'manual') => {
+  const handleBindEmail = async () => {
+    const { value: email } = await Swal.fire({
+      title: 'Bind Email Address',
+      text: 'Enter your email to receive low stock and freshness alerts.',
+      input: 'email',
+      inputPlaceholder: 'user@example.com',
+      inputValue: userEmail === 'smart.home.user@gmail.com' ? '' : userEmail,
+      showCancelButton: true,
+      confirmButtonText: 'Bind Email',
+      customClass: {
+        popup: 'rounded-3xl p-8 border border-base-content/10 shadow-2xl',
+        confirmButton: 'btn btn-primary px-10 rounded-2xl mr-2',
+        cancelButton: 'btn btn-ghost px-8 rounded-2xl',
+        input: 'input input-bordered w-full rounded-xl mt-4 font-bold'
+      },
+      buttonsStyling: false,
+      inputValidator: (value) => {
+        if (!value) return 'Email is required!';
+        return null;
+      }
+    });
+
+    if (email) {
+      setUserEmail(email);
+      localStorage.setItem('smart_fridge_email', email);
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Email bound successfully!',
+        showConfirmButton: false,
+        timer: 2000
+      });
+    }
+  };
+
+  const toggleEmailNotifications = (enabled: boolean) => {
+    setEmailNotifications(enabled);
+    localStorage.setItem('smart_fridge_email_enabled', String(enabled));
+  };
+
+  const addToBuyList = async (name: string, source: 'low-stock' | 'manual' = 'manual') => {
     if (!name.trim()) return;
     const newItem: BuyItem = {
       id: Math.random().toString(36).substr(2, 9),
@@ -554,19 +727,82 @@ const App: React.FC = () => {
       source,
       completed: false
     };
+
+    // Optimistic update
     setBuyList(prev => [...prev, newItem]);
     if (source === 'manual') setManualBuyInput('');
+
+    try {
+      const response = await fetch(`http://${window.location.hostname}:8000/api/shopping-list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem)
+      });
+
+      const result = await response.json();
+      if (result.status === 'success' && result.data && result.data.id) {
+        // Replace temp ID with real DB ID
+        setBuyList(prev => prev.map(i => String(i.id) === String(newItem.id) ? { ...i, id: result.data.id } : i));
+      } else {
+        console.warn('[API] Failed to get real ID for new item:', result);
+      }
+    } catch (error) {
+      console.error('[API] Error adding to buy list:', error);
+    }
   };
 
-  const toggleBuyItem = (id: string) => {
-    setBuyList(prev => prev.map(item => item.id === id ? { ...item, completed: !item.completed } : item));
+  const toggleBuyItem = async (id: string | number) => {
+    const item = buyList.find(i => String(i.id) === String(id));
+    if (!item) return;
+
+    const updatedItem = { ...item, completed: !item.completed };
+
+    // Optimistic update
+    setBuyList(prev => prev.map(i => String(i.id) === String(id) ? updatedItem : i));
+
+    try {
+      const response = await fetch(`http://${window.location.hostname}:8000/api/shopping-list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedItem)
+      });
+
+      const result = await response.json();
+      if (result.status === 'success' && result.data && result.data.id && String(result.data.id) !== String(id)) {
+        // If the server returned a numeric ID and we were using a temp string, update it now
+        setBuyList(prev => prev.map(i => String(i.id) === String(id) ? { ...i, id: result.data.id } : i));
+      }
+    } catch (error) {
+      console.error('[API] Error toggling buy item:', error);
+    }
   };
 
-  const removeBuyItem = (id: string) => {
-    setBuyList(prev => prev.filter(item => item.id !== id));
+  const removeBuyItem = async (id: string | number) => {
+    // Optimistic update
+    setBuyList(prev => prev.filter(item => String(item.id) !== String(id)));
+
+    try {
+      await fetch(`http://${window.location.hostname}:8000/api/shopping-list/${id}`, {
+        method: 'DELETE'
+      });
+    } catch (error) {
+      console.error('[API] Error removing buy item:', error);
+    }
   };
 
   const lowStockItems = inventory.filter(i => i.quantity <= i.reorderThreshold);
+
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-base-200 flex items-center justify-center">
+        <span className="loading loading-infinity loading-lg text-primary"></span>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Auth onSessionChange={setSession} />;
+  }
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -767,11 +1003,15 @@ const App: React.FC = () => {
                     onKeyPress={(e) => e.key === 'Enter' && handleStoreSearch()}
                   />
                   <button
-                    className={`btn btn-primary join-item px-8 ${isSearchingStores ? 'loading' : ''}`}
-                    onClick={handleStoreSearch}
+                    className="btn btn-primary join-item px-8"
+                    onClick={() => handleStoreSearch()}
                     disabled={isSearchingStores}
                   >
-                    {!isSearchingStores && <Send size={20} />}
+                    {isSearchingStores ? (
+                      <span className="loading loading-spinner loading-sm"></span>
+                    ) : (
+                      <Send size={20} />
+                    )}
                   </button>
                 </div>
 
@@ -818,7 +1058,16 @@ const App: React.FC = () => {
                 <h3 className="font-bold text-lg flex items-center gap-2">
                   <MapPin size={20} className="text-secondary" /> Nearest Stores
                 </h3>
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
+                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar min-h-[160px] relative">
+                  {isSearchingStores ? (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[2px] rounded-3xl animate-in fade-in duration-300">
+                      <div className="flex flex-col items-center gap-3">
+                        <span className="loading loading-ring loading-lg text-primary"></span>
+                        <p className="text-xs font-black uppercase tracking-widest text-primary animate-pulse">Scanning store prices...</p>
+                      </div>
+                    </div>
+                  ) : null}
+
                   {nearestStores.length > 0 ? nearestStores.map((store, i) => (
                     <div
                       key={i}
@@ -847,7 +1096,7 @@ const App: React.FC = () => {
                     </div>
                   )) : (
                     <div className="p-10 bg-base-100 rounded-3xl border border-dashed border-base-300 w-full text-center opacity-40">
-                      {isSearchingStores ? <span className="loading loading-dots"></span> : "Search for something to see nearby stores."}
+                      {isSearchingStores ? "Searching for nearest options..." : "Search for something to see nearby stores."}
                     </div>
                   )}
                 </div>
@@ -858,7 +1107,16 @@ const App: React.FC = () => {
                 <h3 className="font-bold text-lg flex items-center gap-2">
                   <DollarSign size={20} className="text-success" /> Best Deals & Cheapest
                 </h3>
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
+                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar min-h-[160px] relative">
+                  {isSearchingStores ? (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[2px] rounded-3xl animate-in fade-in duration-300">
+                      <div className="flex flex-col items-center gap-3">
+                        <span className="loading loading-ring loading-lg text-success"></span>
+                        <p className="text-xs font-black uppercase tracking-widest text-success animate-pulse">Comparing local deals...</p>
+                      </div>
+                    </div>
+                  ) : null}
+
                   {cheapestStores.length > 0 ? cheapestStores.map((store, i) => (
                     <div
                       key={i}
@@ -884,7 +1142,7 @@ const App: React.FC = () => {
                     </div>
                   )) : (
                     <div className="p-10 bg-base-100 rounded-3xl border border-dashed border-base-300 w-full text-center opacity-40">
-                      {isSearchingStores ? <span className="loading loading-dots"></span> : "Discover the best deals in your area."}
+                      {isSearchingStores ? "Searching for best deals..." : "Discover the best deals in your area."}
                     </div>
                   )}
                 </div>
@@ -901,7 +1159,7 @@ const App: React.FC = () => {
                 </h2>
                 <div className="flex gap-2">
                   <button
-                    className={`btn btn-sm btn-ghost bg-base-100 border border-base-300 ${isRefreshingSnapshot ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`btn btn-sm btn-primary ${isRefreshingSnapshot ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onClick={handleRefreshSnapshot}
                     disabled={isRefreshingSnapshot} // This provides the "gray out" effect and prevents clicks
                   >
@@ -912,9 +1170,9 @@ const App: React.FC = () => {
                     )}
                     <span className={isRefreshingSnapshot ? 'opacity-70' : ''}>Refresh View</span>
                   </button>
-                  <button className="btn btn-sm btn-primary" onClick={() => setIsCameraOpen(true)}>
+                  {/* <button className="btn btn-sm btn-primary" onClick={() => setIsCameraOpen(true)}>
                     <Camera size={16} /> Scan
-                  </button>
+                  </button> */}
                 </div>
               </div>
 
@@ -1070,8 +1328,16 @@ const App: React.FC = () => {
                         onChange={(e) => setChefPrompt(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && handleFetchRecipes()}
                       />
-                      <button className={`btn btn-primary join-item px-8 ${isLoadingRecipes ? 'loading' : ''}`} onClick={handleFetchRecipes} disabled={isLoadingRecipes}>
-                        {!isLoadingRecipes && <Send size={20} />}
+                      <button
+                        className="btn btn-primary join-item px-8"
+                        onClick={handleFetchRecipes}
+                        disabled={isLoadingRecipes}
+                      >
+                        {isLoadingRecipes ? (
+                          <span className="loading loading-spinner loading-sm"></span>
+                        ) : (
+                          <Send size={20} />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -1102,48 +1368,88 @@ const App: React.FC = () => {
               <div className="card bg-base-100 shadow-xl border border-base-200">
                 <div className="card-body p-6">
                   <h2 className="text-2xl font-black mb-4 flex items-center gap-2">
-                    <ShoppingCart className="text-primary" /> To-purchase List
+                    <ShoppingCart className="text-primary" /> To-Purchase List
                   </h2>
-                  <div className="flex gap-2 mb-6">
-                    <input
-                      type="text"
-                      placeholder="Add manual reminder..."
-                      className="input input-bordered flex-1"
-                      value={manualBuyInput}
-                      onChange={(e) => setManualBuyInput(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && addToBuyList(manualBuyInput)}
-                    />
-                    <button className="btn btn-primary" onClick={() => addToBuyList(manualBuyInput)}>
-                      <Plus size={20} />
+                  <div className="flex gap-2 mb-8 bg-base-200/50 p-2 rounded-2xl border border-base-content/5">
+                    <div className="relative flex-1">
+                      <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none opacity-40">
+                        <Plus size={18} />
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Add items-to-buy ..."
+                        className="input input-ghost w-full pl-12 bg-transparent focus:bg-base-100/50 transition-all font-medium"
+                        value={manualBuyInput}
+                        onChange={(e) => setManualBuyInput(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && addToBuyList(manualBuyInput)}
+                      />
+                    </div>
+                    <button className="btn btn-primary btn-md px-6 rounded-xl shadow-lg shadow-primary/20" onClick={() => addToBuyList(manualBuyInput)}>
+                      Add
                     </button>
                   </div>
-                  <div className="space-y-3">
-                    {buyList.length > 0 ? (
-                      buyList.map((item) => (
-                        <div key={item.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${item.completed ? 'bg-base-200 border-transparent opacity-50' : 'bg-base-100 border-base-300 shadow-sm'}`}>
-                          <div className="flex items-center gap-3">
-                            <button className={`btn btn-circle btn-sm ${item.completed ? 'btn-success text-white border-none' : 'btn-ghost border-base-300'}`} onClick={() => toggleBuyItem(item.id)}>
-                              {item.completed ? <Check size={16} /> : <div className="w-4 h-4 rounded-full border border-base-content/20"></div>}
-                            </button>
-                            <div>
-                              <p className={`font-bold ${item.completed ? 'line-through' : ''}`}>{item.name}</p>
-                              {item.source === 'low-stock' && (
-                                <span className="text-[9px] font-black text-error uppercase">Stock Alert Item</span>
+                  {buyList.length > 0 ? (
+                    buyList.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`group flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 hover:scale-[1.01] ${item.completed
+                          ? 'bg-base-200/40 border-transparent opacity-60 grayscale'
+                          : 'bg-base-100 border-base-content/5 shadow-sm hover:shadow-xl hover:border-primary/20'
+                          }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <button
+                            className={`btn btn-circle btn-sm shadow-sm transition-all ${item.completed
+                              ? 'btn-success text-white border-none'
+                              : 'btn-ghost border-base-content/10 bg-base-200/50 hover:bg-primary/10 hover:border-primary/30'
+                              }`}
+                            onClick={() => toggleBuyItem(item.id)}
+                          >
+                            {item.completed ? <Check size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-base-content/10"></div>}
+                          </button>
+                          <div>
+                            <p className={`font-bold text-base tracking-tight ${item.completed ? 'line-through opacity-40' : 'text-base-content/90'}`}>
+                              {item.name}
+                            </p>
+                            <div className="flex gap-2 items-center mt-1">
+                              {item.source === 'low-stock' ? (
+                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-error/10 text-[10px] font-black text-error uppercase tracking-tighter border border-error/5">
+                                  <div className="w-1 h-1 rounded-full bg-error animate-pulse"></div>
+                                  Stock Alert
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-md bg-primary/10 text-[10px] font-black text-primary uppercase tracking-tighter border border-primary/5">
+                                  Manual Note
+                                </span>
                               )}
                             </div>
                           </div>
-                          <button className="btn btn-ghost btn-sm text-error btn-square" onClick={() => removeBuyItem(item.id)}>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            className="btn btn-ghost btn-circle btn-sm text-primary/60 hover:text-primary hover:bg-primary/10 transition-all duration-200"
+                            title="Search deals for this item"
+                            onClick={() => handleQuickSearch(item.name)}
+                          >
+                            <Search size={18} />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-circle btn-sm text-error/60 hover:text-error hover:bg-error/10 transition-all duration-200"
+                            onClick={() => removeBuyItem(item.id)}
+                          >
                             <Trash2 size={18} />
                           </button>
                         </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-20 opacity-30">
-                        <ShoppingCart size={48} className="mx-auto mb-2" />
-                        <p>No items in your shopping list.</p>
                       </div>
-                    )}
-                  </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-20 bg-base-200/30 rounded-3xl border border-dashed border-base-content/10">
+                      <div className="bg-base-100 w-16 h-16 rounded-2xl shadow-xl flex items-center justify-center mx-auto mb-4 border border-base-content/5">
+                        <ShoppingCart className="text-primary opacity-40" size={32} />
+                      </div>
+                      <p className="font-bold text-base-content/30 italic">No reminders for your next grocery run.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1161,18 +1467,65 @@ const App: React.FC = () => {
                         <img src="https://picsum.photos/seed/user1/200/200" alt="Profile" />
                       </div>
                     </div>
-                    <h2 className="text-2xl font-black">Family Admin</h2>
-                    <p className="text-sm opacity-50">smart.home.user@gmail.com</p>
+                    <h2 className="text-2xl font-black">{userName || 'Family Member'}</h2>
+                    <div className="flex flex-col items-center gap-1">
+                      <p className="text-xs opacity-50 font-bold uppercase tracking-widest">{userEmail}</p>
+                      {userPhone && <p className="text-[10px] opacity-40 font-black tracking-tighter">{userPhone}</p>}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-2">
-                    <button className="btn btn-ghost justify-start gap-4 h-14">
-                      <User size={20} className="text-primary" /> Profile Settings
-                    </button>
-                    <button className="btn btn-ghost justify-start gap-4 h-14">
-                      <Settings size={20} className="text-primary" /> Hub Configuration
-                    </button>
-                    <div className="divider"></div>
-                    <button className="btn btn-error btn-outline gap-4 h-14">
+
+                  <div className="space-y-4">
+                    <div className="bg-base-200/50 rounded-3xl p-6 border border-base-content/5">
+                      <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4 flex items-center gap-2">
+                        <User size={12} /> Contact Information
+                      </h3>
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-base-100 p-4 rounded-2xl border border-base-content/5 shadow-sm overflow-hidden">
+                        <div className="flex items-center gap-4 w-full sm:w-auto min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                            <Send size={18} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-black opacity-40 uppercase tracking-tighter">Notification Email</p>
+                            <p className="text-sm font-bold truncate">{userEmail}</p>
+                          </div>
+                        </div>
+                        <button className="btn btn-primary btn-sm rounded-xl px-6 w-full sm:w-auto shrink-0" onClick={handleBindEmail}>
+                          Change
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-base-200/50 rounded-3xl p-6 border border-base-content/5">
+                      <h3 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4 flex items-center gap-2">
+                        <Activity size={12} /> Privacy & Alerts
+                      </h3>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center p-4 bg-base-100 rounded-2xl border border-base-content/5 shadow-sm">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center text-secondary">
+                              <Bell size={18} />
+                            </div>
+                            <span className="font-bold text-sm">Email Notifications</span>
+                          </div>
+                          <input
+                            type="checkbox"
+                            className="toggle toggle-primary"
+                            checked={emailNotifications}
+                            onChange={(e) => toggleEmailNotifications(e.target.checked)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="divider opacity-10"></div>
+
+                    <button
+                      onClick={async () => {
+                        await supabase.auth.signOut();
+                        setSession(null);
+                      }}
+                      className="btn btn-error btn-outline btn-block gap-4 h-14 rounded-2xl font-black uppercase tracking-tighter"
+                    >
                       <LogOut size={20} /> Sign Out
                     </button>
                   </div>

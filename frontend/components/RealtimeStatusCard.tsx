@@ -63,17 +63,22 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }
           </div>
 
           {/* Defreezing Anomaly */}
-          <div className={`flex flex-col gap-1 p-3 rounded-2xl transition-colors ${data.temperature > 7 ? 'bg-error/10 border border-error/20' : 'bg-base-200/50'}`}>
+          <div className={`flex flex-col gap-1 p-3 rounded-2xl transition-colors ${data.temperature > 7 || data.moistureAlert ? 'bg-error/10 border border-error/20' : 'bg-base-200/50'}`}>
             <div className="flex items-center justify-between">
-              <Snowflake size={18} className={data.temperature > 7 ? "text-error" : "text-primary"} />
-              {data.temperature > 7 && (
-                <span className="animate-pulse text-[10px] text-error font-bold uppercase">
-                  {data.temperature > 10 ? 'Critical' : 'Warning'}
+              <Snowflake size={18} className={data.temperature > 7 || data.moistureAlert ? "text-error" : "text-primary"} />
+              {(data.temperature > 7 || data.moistureAlert) && (
+                <span className="text-[10px] text-error font-bold uppercase animate-pulse">
+                  {data.moistureAlert && data.temperature > 7 ? 'Critical' : 'Warning'}
                 </span>
               )}
             </div>
-            <div className="text-xl font-bold">{data.temperature > 7 ? 'Defrozen' : 'Frozen'}</div>
-            <div className="text-xs text-base-content/50">Frost Monitor</div>
+            <div className="text-xl font-bold">
+              {data.moistureAlert && data.temperature > 7 ? 'MELTING' : data.temperature > 7 ? 'Defrozen' : data.moistureAlert ? 'WET' : 'Frozen'}
+            </div>
+            <div className="text-xs text-base-content/50 flex justify-between items-center">
+              <span>Frost Monitor</span>
+              {data.moistureAlert && <AlertTriangle size={12} className="text-error" />}
+            </div>
           </div>
 
           {/* Door Status */}

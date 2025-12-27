@@ -60,6 +60,7 @@ latest_sensor_data = {
     "latest_image_url": None,
     "lastCaptureTime": None,
     "inventory": [],
+    "shopping_list": [],
     "lastUpdated": datetime.now().isoformat()
 }
 
@@ -84,6 +85,11 @@ def init_state_from_supabase():
             print(f"[Startup] Loaded latest image: {image_info['url']}")
         else:
             print("[Startup] No previous images found in Supabase.")
+            
+        # 3. Fetch Shopping List
+        shopping_items = uploadInventory.get_shopping_list()
+        latest_sensor_data["shopping_list"] = shopping_items
+        print(f"[Startup] Loaded {len(shopping_items)} shopping items.")
     except Exception as e:
         print(f"[Startup] Error during initialization: {e}")
 
@@ -118,7 +124,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # MQTT Config
-MQTT_BROKER = "35.194.40.109"
+MQTT_BROKER = "136.111.11.0"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"
@@ -149,6 +155,15 @@ def on_message(client, userdata, msg):
         elif topic == "fridge/door":
             state = payload.get("state", "closed")
             latest_sensor_data["doorOpen"] = (state.lower() == "open")
+            latest_sensor_data["lastUpdated"] = datetime.now().isoformat()
+            message_to_send = {"type": "sensor_update", "data": latest_sensor_data}
+            update_broadcast = True
+
+        elif topic == "fridge/freeze":
+            # Simplified status handler (Frozen / Defreeze)
+            status = payload.get("status", "Frozen")
+            latest_sensor_data["moistureAlert"] = (status == "Defreeze")
+            
             latest_sensor_data["lastUpdated"] = datetime.now().isoformat()
             message_to_send = {"type": "sensor_update", "data": latest_sensor_data}
             update_broadcast = True
@@ -316,6 +331,12 @@ class RecipeDetailsRequest(BaseModel):
 class SnapshotRequest(BaseModel):
     image_base64: str
 
+class ShoppingItem(BaseModel):
+    id: Optional[str] = None
+    name: str
+    source: str = "manual"
+    completed: bool = False
+
 @app.post("/recommend", response_model=List[RecommendRow])
 def recommend(req: RecommendRequest):
     """
@@ -403,10 +424,13 @@ def recommend(req: RecommendRequest):
     else:
         items = df_area["item"].dropna().unique().tolist()
         matched_items = recommender.match_items(product_q, items)
+        print(f"[Search Engine] Query: '{product_q}' -> Matched {len(matched_items)} potential items.")
+        
         if not matched_items:
             raise HTTPException(status_code=404, detail="No matching product found")
         
         best_matches = [m[0] for m in matched_items[:5]] 
+        print(f"  > Top 5 matches: {best_matches}")
         pattern = '|'.join([re.escape(m.lower()) for m in best_matches])
         df_prod = df_area[df_area["item"].fillna("").str.lower().str.contains(pattern, na=False, regex=True)].copy()
 
@@ -675,3 +699,20 @@ async def trigger_snapshot():
     except Exception as e:
         print(f"[API] Error triggering snapshot: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/shopping-list")
+def get_shopping_list():
+    return uploadInventory.get_shopping_list()
+
+@app.post("/api/shopping-list")
+def save_shopping_item(item: ShoppingItem):
+    result = uploadInventory.save_shopping_item(item.dict())
+    if result:
+        return {"status": "success", "data": result.data[0] if result.data else None}
+    raise HTTPException(status_code=500, detail="Failed to save shopping item")
+
+@app.delete("/api/shopping-list/{item_id}")
+def delete_shopping_item(item_id: str):
+    if uploadInventory.delete_shopping_item(item_id):
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Failed to delete shopping item")

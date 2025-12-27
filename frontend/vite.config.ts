@@ -9,6 +9,14 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        verified: path.resolve(__dirname, 'verified.html'),
+      },
+    },
+  },
   resolve: {
     alias: {
       react: path.resolve('./node_modules/react'),

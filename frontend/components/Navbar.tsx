@@ -35,18 +35,18 @@ const Navbar: React.FC<NavbarProps> = ({ onOpenSettings, onOpenAlerts, unreadCou
       </div>
       <div className="flex-none flex items-center gap-1 sm:gap-2">
         <fieldset className="fieldset hidden md:inline-flex m-0 p-0 border-none">
-            <div className="join">
-                <input
-                    type="text"
-                    placeholder="Search..."
-                    className="input input-sm join-item bg-base-200 w-32 focus:w-48 transition-all"
-                />
-            </div>
+          <div className="join">
+            <input
+              type="text"
+              placeholder="Search..."
+              className="input input-sm join-item bg-base-200 w-32 focus:w-48 transition-all"
+            />
+          </div>
         </fieldset>
 
         {/* GPS Location Toggle */}
-        <button 
-          className={`btn btn-ghost btn-circle ${userLocation ? 'text-primary' : 'opacity-50'}`} 
+        <button
+          className={`btn btn-ghost btn-circle ${userLocation ? 'text-primary' : 'opacity-50'}`}
           onClick={onToggleLocation}
           title={userLocation ? `Location: ${userLocation.lat.toFixed(2)}, ${userLocation.lng.toFixed(2)}` : "Request GPS Location"}
         >
@@ -61,7 +61,7 @@ const Navbar: React.FC<NavbarProps> = ({ onOpenSettings, onOpenAlerts, unreadCou
             </div>
           )}
         </button>
-        
+
         {/* Theme Toggle */}
         <button className="btn btn-ghost btn-circle" onClick={toggleTheme} title="Toggle Theme">
           {theme === 'cupcake' ? <Moon size={20} /> : <Sun size={20} className="text-warning" />}
