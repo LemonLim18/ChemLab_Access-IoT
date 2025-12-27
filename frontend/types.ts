@@ -81,6 +81,7 @@ export interface StoreResult {
   lon?: number;
   items: StoreItem[];
   last_date: string;
+  thumbnail_url?: string;
 }
 
 export interface BuyItem {

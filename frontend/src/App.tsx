@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Swal from 'sweetalert2';
-import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils, List, ChevronRight, Bell } from 'lucide-react';
+import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Map, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils, List, ChevronRight, Bell, Eye, X } from 'lucide-react';
 
 import type { FridgeItem, SensorData, Notification, Recipe, StoreResult, BuyItem } from '../types';
 import { FreshnessStatus } from '../types';
@@ -83,7 +83,15 @@ const App: React.FC = () => {
     results: StoreResult[],
     location: { lat: number, lng: number } | null,
     timestamp: number
-  }>>({});
+  }>>(() => {
+    const saved = localStorage.getItem('smart_fridge_search_cache');
+    try {
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      console.warn('[Cache] Failed to parse saved search cache:', e);
+      return {};
+    }
+  });
 
   // Profile / Settings State
   const [userEmail, setUserEmail] = useState<string>('');
@@ -104,6 +112,10 @@ const App: React.FC = () => {
       document.documentElement.style.overflow = '';
     }
   }, [activeStoreModal, isCameraOpen, isAnalyzing, isLoadingDetails, selectedRecipe]);
+
+  useEffect(() => {
+    localStorage.setItem('smart_fridge_search_cache', JSON.stringify(searchCache));
+  }, [searchCache]);
 
   useEffect(() => {
     const authChannel = new BroadcastChannel('supabase_auth_sync');
@@ -952,11 +964,9 @@ const App: React.FC = () => {
                     <div className="mt-2 flex flex-col gap-3">
                       {cheapestStores.length > 0 ? (
                         <>
-                          <div>
-                            <p className="font-black text-xl text-base-content/90 line-clamp-1">{cheapestStores[0].premise}</p>
-                          </div>
+                          <p className="font-black text-xl text-base-content/90 line-clamp-1">{cheapestStores[0].premise}</p>
 
-                          <div className="h-24 w-full rounded-2xl overflow-hidden border border-primary/10 shadow-inner relative group/map">
+                          <div className="h-32 w-full rounded-2xl overflow-hidden border border-primary/10 shadow-inner relative group/map">
                             <iframe
                               width="100%"
                               height="100%"
@@ -994,11 +1004,9 @@ const App: React.FC = () => {
                     <div className="mt-2 flex flex-col gap-3">
                       {nearestStores.length > 0 ? (
                         <>
-                          <div>
-                            <p className="font-black text-xl text-base-content/90 line-clamp-1">{nearestStores[0].premise}</p>
-                          </div>
+                          <p className="font-black text-xl text-base-content/90 line-clamp-1">{nearestStores[0].premise}</p>
 
-                          <div className="h-24 w-full rounded-2xl overflow-hidden border border-secondary/10 shadow-inner relative group/map">
+                          <div className="h-32 w-full rounded-2xl overflow-hidden border border-secondary/10 shadow-inner relative group/map">
                             <iframe
                               width="100%"
                               height="100%"
@@ -1154,9 +1162,19 @@ const App: React.FC = () => {
                   {nearestStores.length > 0 ? nearestStores.map((store, i) => (
                     <div
                       key={i}
-                      className="card bg-base-100 shadow-md border border-base-200 min-w-[240px] max-w-[280px] shrink-0 hover:border-secondary transition-all cursor-pointer group active:scale-95"
+                      className="card bg-base-100 shadow-md border border-base-200 min-w-[240px] max-w-[280px] shrink-0 hover:border-secondary transition-all cursor-pointer group active:scale-95 overflow-hidden"
                       onClick={() => setActiveStoreModal(store)}
                     >
+                      {store.thumbnail_url && (
+                        <div className="h-24 w-full relative overflow-hidden">
+                          <img
+                            src={store.thumbnail_url}
+                            alt={store.premise}
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                        </div>
+                      )}
                       <div className="card-body p-4">
                         <div className="flex justify-between items-start gap-2">
                           <div>
@@ -1203,9 +1221,19 @@ const App: React.FC = () => {
                   {cheapestStores.length > 0 ? cheapestStores.map((store, i) => (
                     <div
                       key={i}
-                      className="card bg-base-100 shadow-md border border-base-200 min-w-[240px] max-w-[280px] shrink-0 hover:border-success transition-all cursor-pointer group active:scale-95"
+                      className="card bg-base-100 shadow-md border border-base-200 min-w-[240px] max-w-[280px] shrink-0 hover:border-success transition-all cursor-pointer group active:scale-95 overflow-hidden"
                       onClick={() => setActiveStoreModal(store)}
                     >
+                      {store.thumbnail_url && (
+                        <div className="h-24 w-full relative overflow-hidden">
+                          <img
+                            src={store.thumbnail_url}
+                            alt={store.premise}
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+                        </div>
+                      )}
                       <div className="card-body p-4">
                         <div className="flex justify-between items-start gap-2">
                           <div>
@@ -1674,17 +1702,30 @@ const App: React.FC = () => {
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setActiveStoreModal(null)}></div>
           <div className="bg-base-100 w-full max-w-2xl max-h-[85vh] rounded-[2rem] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 slide-in-from-bottom-8 duration-500 border border-base-content/10">
             {/* Modal Header */}
-            <div className="p-8 pb-4 relative overflow-hidden shrink-0">
-              {/* Map Background Embed */}
-              <div className="absolute inset-0 z-0 opacity-20 mask-mask-b-to-transparent">
-                <iframe
-                  width="100%"
-                  height="100%"
-                  frameBorder="0"
-                  style={{ border: 0 }}
-                  src={`https://maps.google.com/maps?q=${encodeURIComponent(activeStoreModal.premise + ' ' + activeStoreModal.address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
-                  allowFullScreen
-                ></iframe>
+            {/* Map top */}
+            <div className="p-8 pb-4 mb-4 relative overflow-hidden shrink-0">
+              {/* Header Visual: Permanent Interior Image */}
+              <div className="absolute inset-0 z-0 bg-base-300">
+                {activeStoreModal.thumbnail_url ? (
+                  <div className="w-full h-full relative animate-in fade-in duration-300">
+                    <img
+                      src={activeStoreModal.thumbnail_url}
+                      alt={activeStoreModal.premise}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-base-100 via-base-100/40 to-transparent"></div>
+                  </div>
+                ) : (
+                  <div className="w-full h-full bg-primary/5 flex items-center justify-center">
+                    <Package size={48} className="opacity-10" />
+                  </div>
+                )}
+              </div>
+
+              <div className="absolute top-4 right-4 z-20">
+                <button className="btn btn-sm btn-circle bg-base-100/80 backdrop-blur border-none shadow-lg hover:bg-base-100" onClick={() => setActiveStoreModal(null)}>
+                  <X size={18} />
+                </button>
               </div>
 
               <div className="relative z-10 flex flex-col md:flex-row justify-between items-start gap-4">
@@ -1695,26 +1736,48 @@ const App: React.FC = () => {
                     <MapPin size={10} /> {activeStoreModal.address}
                   </p>
                 </div>
-                <div className="bg-base-200/50 p-3 rounded-2xl flex items-center gap-3 border border-base-content/5 shrink-0">
-                  <div className="text-right">
-                    <p className="text-[9px] font-black opacity-40 uppercase tracking-tighter">Proximity</p>
-                    <p className="text-sm font-black">{activeStoreModal.distance_km?.toFixed(1) || '?'} KM</p>
+                <div className="flex flex-col gap-2 shrink-0">
+                  <div className="bg-base-200/50 p-3 rounded-2xl flex items-center gap-3 border border-base-content/5">
+                    <div className="text-right">
+                      <p className="text-[9px] font-black opacity-40 uppercase tracking-tighter">Proximity</p>
+                      <p className="text-sm font-black">{activeStoreModal.distance_km?.toFixed(1) || '?'} KM</p>
+                    </div>
+                    <div className="divider divider-horizontal m-0 opacity-10"></div>
+                    <a
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${activeStoreModal.lat},${activeStoreModal.lon}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-circle btn-primary btn-sm shadow-lg shadow-primary/30"
+                    >
+                      <ExternalLink size={14} />
+                    </a>
                   </div>
-                  <div className="divider divider-horizontal m-0 opacity-10"></div>
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${activeStoreModal.lat},${activeStoreModal.lon}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-circle btn-primary btn-sm shadow-lg shadow-primary/30"
-                  >
-                    <ExternalLink size={14} />
-                  </a>
                 </div>
               </div>
             </div>
 
+            {/* Integrated Mini Map */}
+            {/* Map Bottom */}
+            <div className="mx-9 sticky top-0 bg-base-100 pt-2 pb-4 z-20 border-b border-base-content/5">
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
+                <Map size={12} /> Map Location
+              </h3>
+            </div>
+            <div className="h-76 mx-8 my-4 rounded-xl overflow-hidden border border-base-content/10 relative group/map">
+              <iframe
+                width="100%"
+                height="100%"
+                frameBorder="0"
+                style={{ border: 0 }}
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(activeStoreModal.premise + ' ' + activeStoreModal.address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
+                allowFullScreen
+                className="opacity-70 group-hover/map:opacity-100 transition-opacity w-full h-full"
+              ></iframe>
+              <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-black/5"></div>
+            </div>
+
             {/* Modal Body: Item List */}
-            <div className="flex-1 overflow-y-auto px-8 pb-8 space-y-4 no-scrollbar">
+            <div className="flex-1 overflow-y-auto mt-2 px-8 pb-8 space-y-4 no-scrollbar">
               <div className="sticky top-0 bg-base-100 pt-2 pb-4 z-20 border-b border-base-content/5 mb-4">
                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
                   <List size={12} /> Product Alternatives ({activeStoreModal.items.length})
