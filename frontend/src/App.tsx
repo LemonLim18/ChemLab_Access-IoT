@@ -60,8 +60,10 @@ const App: React.FC = () => {
   const [lastSnapshotTime, setLastSnapshotTime] = useState<string>('');
   const [isRefreshingSnapshot, setIsRefreshingSnapshot] = useState(false);
   const [activeStoreModal, setActiveStoreModal] = useState<StoreResult | null>(null);
+  const [isMapExpanded, setIsMapExpanded] = useState(true);
   const [expandedHistoryItem, setExpandedHistoryItem] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [anomalyStartTimes, setAnomalyStartTimes] = useState<Record<string, string>>({});
 
   // Store Finder State
   const [storeSearchQuery, setStoreSearchQuery] = useState('');
@@ -97,8 +99,41 @@ const App: React.FC = () => {
   const [userEmail, setUserEmail] = useState<string>('');
   const [userName, setUserName] = useState<string>('');
   const [userPhone, setUserPhone] = useState<string>('');
+  const [toasts, setToasts] = useState<{ id: string, title: string, message: string, alert_category: 'info' | 'warning' | 'error' | 'success' }[]>([]);
+  const [anomalyEvents, setAnomalyEvents] = useState<any[]>([]);
+
+  const fetchAnomalyEvents = async () => {
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/anomaly-events`);
+      const data = await res.json();
+      setAnomalyEvents(data);
+    } catch (e) {
+      console.error('[Anomalies] Failed to fetch events:', e);
+    }
+  };
+
+  const addToast = (toast: any) => {
+    const id = Math.random().toString(36).substring(7);
+    setToasts(prev => [...prev, { ...toast, id }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
+
+  const syncUserConfig = useCallback(async (name: string, email: string, enabled: boolean) => {
+    try {
+      await fetch(`http://${window.location.hostname}:8000/api/user-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, email_enabled: enabled })
+      });
+      console.log('[Config] User settings synced to backend.');
+    } catch (e) {
+      console.error('[Config] Failed to sync settings:', e);
+    }
+  }, []);
   const [emailNotifications, setEmailNotifications] = useState<boolean>(() => {
-    return localStorage.getItem('smart_fridge_email_enabled') === 'true';
+    return localStorage.getItem('smart_fridge_email_enabled') !== 'false';
   });
 
   useEffect(() => {
@@ -124,11 +159,17 @@ const App: React.FC = () => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user) {
-        if (session.user.email) setUserEmail(session.user.email);
-        if (session.user.user_metadata) {
-          setUserName(session.user.user_metadata.username || session.user.user_metadata.display_name || session.user.user_metadata.full_name || '');
-          if (session.user.user_metadata.phone) setUserPhone(session.user.user_metadata.phone);
-        }
+        const email = session.user.email || '';
+        const name = session.user.user_metadata?.username || session.user.user_metadata?.display_name || session.user.user_metadata?.full_name || 'User';
+
+        setUserEmail(email);
+        setUserName(name);
+        if (session.user.user_metadata?.phone) setUserPhone(session.user.user_metadata.phone);
+
+        // Auto-sync to backend on load
+        const storedEmail = localStorage.getItem('smart_fridge_email') || email;
+        const enabled = localStorage.getItem('smart_fridge_email_enabled') !== 'false'; // Default true
+        syncUserConfig(name, storedEmail, enabled);
       }
       setIsAuthChecking(false);
     });
@@ -137,11 +178,17 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
       setSession(session);
       if (session?.user) {
-        if (session.user.email) setUserEmail(session.user.email);
-        if (session.user.user_metadata) {
-          setUserName(session.user.user_metadata.username || session.user.user_metadata.display_name || session.user.user_metadata.full_name || '');
-          if (session.user.user_metadata.phone) setUserPhone(session.user.user_metadata.phone);
-        }
+        const email = session.user.email || '';
+        const name = session.user.user_metadata?.username || session.user.user_metadata?.display_name || session.user.user_metadata?.full_name || 'User';
+
+        setUserEmail(email);
+        setUserName(name);
+        if (session.user.user_metadata?.phone) setUserPhone(session.user.user_metadata.phone);
+
+        // Sync on auth change
+        const storedEmail = localStorage.getItem('smart_fridge_email') || email;
+        const enabled = localStorage.getItem('smart_fridge_email_enabled') !== 'false';
+        syncUserConfig(name, storedEmail, enabled);
 
         // Notify other tabs if this was a login event (like from email confirmation)
         if (_event === 'SIGNED_IN') {
@@ -288,7 +335,8 @@ const App: React.FC = () => {
     };
 
     fetchInitialState();
-  }, []);
+    fetchAnomalyEvents();
+  }, [syncUserConfig]);
 
   useEffect(() => {
     const wsUrl = `ws://${window.location.hostname}:8000/ws`;
@@ -328,10 +376,147 @@ const App: React.FC = () => {
           setBuyList(newData.shopping_list);
         }
 
+        // Advanced Anomaly Detection
+        const now = new Date();
+        const timestamp = now.toISOString();
+
+        // 1. Temperature Alert (> 5C is unsafe)
+        if (newData.temperature > 5) {
+          if (!anomalyStartTimes['temperature']) {
+            setAnomalyStartTimes(prev => ({ ...prev, temperature: timestamp }));
+          }
+        } else if (anomalyStartTimes['temperature']) {
+          // Temperature back to normal, record the "Unsafe" range
+          const startTime = new Date(anomalyStartTimes['temperature']);
+          const timeRange = `${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, ${startTime.toLocaleDateString()} to ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, ${now.toLocaleDateString()}`;
+
+          setNotifications(prev => [{
+            id: `temp-${Date.now()}`,
+            title: 'Critical Temperature Alert',
+            message: `Fridge Temperature was ${newData.temperature}°C (Unsafe) from ${timeRange}.`,
+            type: 'error',
+            timestamp: timestamp,
+            isRead: false
+          }, ...prev]);
+          setAnomalyStartTimes(prev => {
+            const clone = { ...prev };
+            delete clone.temperature;
+            return clone;
+          });
+        }
+
+        // 2. Humidity Alert (> 60% is high)
+        if (newData.humidity > 60) {
+          if (!anomalyStartTimes['humidity']) {
+            setAnomalyStartTimes(prev => ({ ...prev, humidity: timestamp }));
+            setNotifications(prev => [{
+              id: `hum-${Date.now()}`,
+              title: 'Humidity Anomaly',
+              message: `Air Humidity is high (${newData.humidity}%) as of ${now.toLocaleTimeString()}.`,
+              type: 'warning',
+              timestamp: timestamp,
+              isRead: false
+            }, ...prev]);
+          }
+        } else {
+          setAnomalyStartTimes(prev => {
+            const clone = { ...prev };
+            delete clone.humidity;
+            return clone;
+          });
+        }
+
+        // 3. Freezer Defrost Alert
+        if (newData.freezerStatus === 'Defreeze' || newData.moistureAlert) {
+          if (!anomalyStartTimes['defrost']) {
+            setAnomalyStartTimes(prev => ({ ...prev, defrost: timestamp }));
+            setNotifications(prev => [{
+              id: `defrost-${Date.now()}`,
+              title: 'Freezer Alert',
+              message: `Top Freezer Defrosted/Moisture detected at ${now.toLocaleTimeString()}.`,
+              type: 'error',
+              timestamp: timestamp,
+              isRead: false
+            }, ...prev]);
+          }
+        } else {
+          setAnomalyStartTimes(prev => {
+            const clone = { ...prev };
+            delete clone.defrost;
+            return clone;
+          });
+        }
+
+        // 4. Door Left Open Reminder (> 5 minutes)
+        if (newData.doorOpen) {
+          if (!anomalyStartTimes['door']) {
+            setAnomalyStartTimes(prev => ({ ...prev, door: timestamp }));
+          } else {
+            const startTime = new Date(anomalyStartTimes['door']);
+            const durationMs = now.getTime() - startTime.getTime();
+            const durationMins = Math.floor(durationMs / 60000);
+
+            if (durationMins >= 5 && !anomalyStartTimes['door_alert_sent']) {
+              setNotifications(prev => [{
+                id: `door-${Date.now()}`,
+                title: 'Personalized Reminder',
+                message: `${userName || 'User'}, the door has been opened for ${durationMins} minutes. Please remember to close the door.`,
+                type: 'warning',
+                timestamp: timestamp,
+                isRead: false
+              }, ...prev]);
+              setAnomalyStartTimes(prev => ({ ...prev, door_alert_sent: 'true' }));
+            }
+          }
+        } else if (anomalyStartTimes['door']) {
+          // Door closed, record range if it was open for a while
+          const startTime = new Date(anomalyStartTimes['door']);
+          const durationMins = Math.floor((now.getTime() - startTime.getTime()) / 60000);
+
+          if (durationMins >= 1) {
+            const timeRange = `${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} to ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+            setNotifications(prev => [{
+              id: `door-range-${Date.now()}`,
+              title: 'Door Access Log',
+              message: `The door was left opened from ${timeRange}.`,
+              type: 'info',
+              timestamp: timestamp,
+              isRead: false
+            }, ...prev]);
+          }
+
+          setAnomalyStartTimes(prev => {
+            const clone = { ...prev };
+            delete clone.door;
+            delete clone.door_alert_sent;
+            return clone;
+          });
+        }
+
         setSensorHistory(prev => {
           const newHistory = [...prev, newData];
           if (newHistory.length > 30) return newHistory.slice(1);
           return newHistory;
+        });
+      } else if (message.type === 'reminder_toast') {
+        console.log('DEBUG: [WebSocket] Received reminder_toast:', message.data);
+        addToast(message.data);
+      } else if (message.type === 'notification_refresh') {
+        console.log('DEBUG: [WebSocket] Received notification_refresh:', message.data);
+        const event = message.data;
+        fetchAnomalyEvents();
+        setNotifications(prev => [{
+          id: `resolved-${Date.now()}`,
+          title: `${event.type.toUpperCase()} ALERT RESOLVED`,
+          message: `${event.info} lasted for ${event.duration_mins} minutes.`,
+          type: 'success',
+          timestamp: new Date().toISOString(),
+          isRead: false
+        }, ...prev]);
+        addToast({
+          title: "Anomaly Resolved",
+          message: `${event.alert_category} issue has been fixed after ${event.duration_mins}m.`,
+          type: "success"
         });
       } else if (message.type === 'capture_update') {
         if (message.data.image_url) {
@@ -483,6 +668,18 @@ const App: React.FC = () => {
       return await requestLocation(true);
     }
     return null;
+  };
+
+  const markNotificationAsRead = (id: string) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
   };
 
   const handleTabChange = (tab: string, skipLocationPrompt: boolean = false) => {
@@ -766,6 +963,7 @@ const App: React.FC = () => {
     if (email) {
       setUserEmail(email);
       localStorage.setItem('smart_fridge_email', email);
+      syncUserConfig(userName, email, emailNotifications);
       Swal.fire({
         toast: true,
         position: 'top-end',
@@ -780,6 +978,7 @@ const App: React.FC = () => {
   const toggleEmailNotifications = (enabled: boolean) => {
     setEmailNotifications(enabled);
     localStorage.setItem('smart_fridge_email_enabled', String(enabled));
+    syncUserConfig(userName, userEmail, enabled);
   };
 
   const addToBuyList = async (name: string, source: 'low-stock' | 'manual' = 'manual') => {
@@ -873,11 +1072,33 @@ const App: React.FC = () => {
         <Navbar
           onOpenSettings={() => handleTabChange('settings')}
           onOpenAlerts={() => handleTabChange('dashboard')}
+          notifications={notifications}
+          anomalyEvents={anomalyEvents}
+          onFetchEvents={fetchAnomalyEvents}
+          onMarkAsRead={markNotificationAsRead}
+          onClearAll={clearAllNotifications}
+          onMarkAllAsRead={markAllNotificationsAsRead}
           unreadCount={notifications.filter(n => !n.isRead).length}
           onToggleLocation={() => requestLocation(true)}
           userLocation={userLocation}
           isLocating={isLocating}
+          userName={userName || 'User'}
         />
+      </div>
+
+      {/* Persistent Toasts (Fade In/Out) */}
+      <div className="fixed bottom-24 left-0 right-0 z-[60] flex flex-col items-center gap-2 pointer-events-none">
+        {toasts.map(toast => (
+          <div key={toast.id} className={`alert ${toast.alert_category === 'error' ? 'alert-error' :
+            toast.alert_category === 'warning' ? 'alert-warning' :
+              toast.alert_category === 'success' ? 'alert-success' : 'alert-info'
+            } shadow-lg w-[90%] max-w-md animate-in fade-in slide-in-from-bottom-5 duration-500 rounded-2xl border-none text-white pointer-events-auto`}>
+            <div>
+              <h3 className="font-bold text-xs uppercase tracking-widest opacity-80">{toast.title}</h3>
+              <p className="text-sm font-medium">{toast.message}</p>
+            </div>
+          </div>
+        ))}
       </div>
 
       <main
@@ -896,8 +1117,8 @@ const App: React.FC = () => {
             <div className="max-w-4xl mx-auto space-y-6">
               {/* Premium Location Banner */}
               {fullLocationName && (
-                <div className="card bg-gradient-to-br from-primary/10 to-base-100 border border-primary/20 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-700">
-                  <div className="card-body p-4 flex-row items-center gap-4">
+                <div className="card mx-2 bg-gradient-to-br from-primary/10 to-base-100 border border-primary/20 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-700">
+                  <div className="card-body py-3 px-2 flex-row items-center gap-4">
                     <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center text-primary shadow-inner">
                       <MapPin size={24} className="fill-primary/20" />
                     </div>
@@ -1756,29 +1977,39 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Integrated Mini Map */}
-            {/* Map Bottom */}
-            <div className="mx-9 sticky top-0 bg-base-100 pt-2 pb-4 z-20 border-b border-base-content/5">
-              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
-                <Map size={12} /> Map Location
-              </h3>
-            </div>
-            <div className="h-76 mx-8 my-4 rounded-xl overflow-hidden border border-base-content/10 relative group/map">
-              <iframe
-                width="100%"
-                height="100%"
-                frameBorder="0"
-                style={{ border: 0 }}
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(activeStoreModal.premise + ' ' + activeStoreModal.address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
-                allowFullScreen
-                className="opacity-70 group-hover/map:opacity-100 transition-opacity w-full h-full"
-              ></iframe>
-              <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-black/5"></div>
-            </div>
+            {/* Modal Body: Scrollable Content */}
+            <div className="flex-1 overflow-y-auto mt-2 px-8 pb-8 no-scrollbar">
+              {/* Integrated Mini Map */}
+              {/* Map Bottom */}
+              <div
+                className="top-0 bg-base-100 pt-2 pb-4 z-20 border-b border-base-content/5 mb-4 flex justify-between items-center cursor-pointer hover:bg-base-200/50 transition-colors px-2 -mx-2 rounded-xl"
+                onClick={() => setIsMapExpanded(!isMapExpanded)}
+              >
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
+                  <Map size={12} /> Map Location
+                </h3>
+                <div className={`transition-transform duration-300 text-base-content/20 ${isMapExpanded ? 'rotate-180' : ''}`}>
+                  <ChevronRight size={14} className="rotate-90" />
+                </div>
+              </div>
 
-            {/* Modal Body: Item List */}
-            <div className="flex-1 overflow-y-auto mt-2 px-8 pb-8 space-y-4 no-scrollbar">
-              <div className="sticky top-0 bg-base-100 pt-2 pb-4 z-20 border-b border-base-content/5 mb-4">
+              <div className={`overflow-hidden transition-all duration-500 ease-in-out ${isMapExpanded ? 'max-h-[500px] mb-8 opacity-100 scale-100' : 'max-h-0 mb-0 opacity-0 scale-95'}`}>
+                <div className="h-64 rounded-xl overflow-hidden border border-base-content/10 relative group/map">
+                  <iframe
+                    width="100%"
+                    height="100%"
+                    frameBorder="0"
+                    style={{ border: 0 }}
+                    src={`https://maps.google.com/maps?q=${encodeURIComponent(activeStoreModal.premise + ' ' + activeStoreModal.address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
+                    allowFullScreen
+                    className="opacity-70 group-hover/map:opacity-100 transition-opacity w-full h-full"
+                  ></iframe>
+                  <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-black/5"></div>
+                </div>
+              </div>
+
+              {/* Product Alternatives Header */}
+              <div className="sticky top-0 bg-base-100 pt-1 pb-4 z-20 border-b border-base-content/5 mb-4">
                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
                   <List size={12} /> Product Alternatives ({activeStoreModal.items.length})
                 </h3>

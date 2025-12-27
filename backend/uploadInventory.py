@@ -213,6 +213,38 @@ def save_shopping_item(item: Dict[str, Any]):
         print(f"[Supabase] Error saving shopping item: {e}")
         return None
 
+def save_anomaly_event(event: Dict[str, Any]):
+    """
+    Persists a resolved anomaly event to Supabase.
+    """
+    try:
+        data = {
+            "device_id": DEVICE_ID,
+            "alert_category": event.get("type"),
+            "alert_info": event.get("info"),
+            "start_time": event.get("start_time"),
+            "end_time": event.get("end_time"),
+            "duration_mins": event.get("duration_mins"),
+            "created_at": datetime.now().isoformat()
+        }
+        response = supabase.table("anomaly_events").insert(data).execute()
+        print(f"[Supabase] Saved anomaly event: {event.get('type')}")
+        return response
+    except Exception as e:
+        print(f"[Supabase] Error saving anomaly event: {e}")
+        return None
+
+def get_anomaly_events() -> List[Dict[str, Any]]:
+    """
+    Retrieves history of resolved anomalies.
+    """
+    try:
+        response = supabase.table("anomaly_events").select("*").eq("device_id", DEVICE_ID).order("created_at", desc=True).limit(50).execute()
+        return response.data
+    except Exception as e:
+        print(f"[Supabase] Error fetching anomaly events: {e}")
+        return []
+
 def delete_shopping_item(item_id: str):
     """
     Deletes an item from the shopping list.

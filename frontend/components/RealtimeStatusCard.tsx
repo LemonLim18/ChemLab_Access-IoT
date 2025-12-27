@@ -18,7 +18,7 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }
 
   return (
     <div className="card bg-base-100 shadow-xl overflow-hidden">
-      <div className="card-body p-4 sm:p-6">
+      <div className="card-body px-4 pb-4 pt-2 sm:p-6">
         <div className="flex justify-between items-start mb-4">
           <h2 className="card-title text-sm uppercase text-base-content/60 tracking-wider font-semibold">Live Conditions</h2>
           <div className="text-[10px] text-base-content/40">Last sync: {new Date(data.lastUpdated).toLocaleTimeString()}</div>
@@ -63,21 +63,28 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }
           </div>
 
           {/* Freezer Status */}
-          <div className={`flex flex-col gap-1 p-3 rounded-2xl transition-colors ${data.freezerStatus === 'Defreeze' ? 'bg-error/10 border border-error/20' : 'bg-base-200/50'}`}>
-            <div className="flex items-center justify-between">
-              <Snowflake size={18} className={data.freezerStatus === 'Defreeze' ? "text-error" : "text-success"} />
-              {data.freezerStatus === 'Defreeze' && (
-                <span className="animate-pulse text-[10px] text-error font-bold uppercase">Melting</span>
-              )}
-            </div>
-            <div className="text-lg font-bold">{data.freezerStatus || 'Frozen'}</div>
-            <div className="text-xs text-base-content/50">Freezer Status</div>
-            {data.moistureAlert && (
-              <div className="flex items-center gap-1 text-[10px] text-error mt-1 font-bold">
-                <AlertTriangle size={10} /> {data.freezerStatus === 'Defreeze' ? 'Leak Detected' : 'Humidity Alert'}
+          {(() => {
+            const status = (data.freezerStatus || 'Frozen').toLowerCase();
+            const isUnfreezing = status.includes('defreeze') || status.includes('unfreezing') || status.includes('defrosting') || status.includes('melting') || data.moistureAlert;
+
+            return (
+              <div className={`flex flex-col gap-1 p-3 rounded-2xl transition-colors ${isUnfreezing ? 'bg-error/10 border border-error/20' : 'bg-base-200/50'}`}>
+                <div className="flex items-center justify-between">
+                  <Snowflake size={18} className={isUnfreezing ? "text-error" : "text-success"} />
+                  {isUnfreezing && (
+                    <span className="animate-pulse text-[10px] text-error font-bold uppercase">Melting</span>
+                  )}
+                </div>
+                <div className="text-lg font-bold capitalize">{data.freezerStatus || 'Frozen'}</div>
+                <div className="text-xs text-base-content/50">Freezer Status</div>
+                {isUnfreezing && (
+                  <div className="flex items-center gap-1 text-[10px] text-error mt-1 font-bold">
+                    <AlertTriangle size={10} /> Alert: Thawing
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* Door Status */}
           <div className={`flex flex-col gap-1 p-3 rounded-2xl transition-colors ${data.doorOpen ? 'bg-error/10 border border-error/20' : 'bg-base-200/50'}`}>

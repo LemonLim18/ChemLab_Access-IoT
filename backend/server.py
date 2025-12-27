@@ -65,6 +65,10 @@ latest_sensor_data = {
     "lastUpdated": datetime.now().isoformat()
 }
 
+# Tracking for ongoing anomalies: { type: { "start": datetime, "last_remind": datetime } }
+active_anomalies = {}
+anomaly_lock = Lock()
+
 def init_state_from_supabase():
     """
     Hydrates the backend state from Supabase on startup.
@@ -125,7 +129,8 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # MQTT Config
-MQTT_BROKER = "136.111.11.0"
+# GCP
+MQTT_BROKER = "34.30.13.100"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"
@@ -150,6 +155,7 @@ def on_message(client, userdata, msg):
             latest_sensor_data["humidity"] = payload.get("humidity_percent", latest_sensor_data["humidity"])
             latest_sensor_data["voc"] = payload.get("voc_ppm", latest_sensor_data["voc"])
             latest_sensor_data["lastUpdated"] = datetime.now().isoformat()
+            print(f"DEBUG: [MQTT] Telemetry updated: {payload}")
             message_to_send = {"type": "sensor_update", "data": latest_sensor_data}
             update_broadcast = True
         
@@ -161,12 +167,18 @@ def on_message(client, userdata, msg):
             update_broadcast = True
 
         elif topic == "fridge/freeze":
-            # Explicit status handler (Frozen / Defreeze)
-            status = payload.get("status", "Frozen")
-            latest_sensor_data["freezerStatus"] = status
-            latest_sensor_data["moistureAlert"] = (status == "Defreeze")
+            # Flexible status handler (Frozen / Defreeze / Unfreezing / Defrosting)
+            raw_status = payload.get("status", "Frozen")
+            status_lower = raw_status.lower()
+            
+            # Map various synonyms to a standardized condition
+            is_unfreezing = any(term in status_lower for term in ["defreeze", "unfreezing", "defrosting", "melting"])
+            
+            latest_sensor_data["freezerStatus"] = raw_status
+            latest_sensor_data["moistureAlert"] = is_unfreezing
             
             latest_sensor_data["lastUpdated"] = datetime.now().isoformat()
+            print(f"DEBUG: [MQTT] Freezer status: {raw_status} (Alert: {is_unfreezing})")
             message_to_send = {"type": "sensor_update", "data": latest_sensor_data}
             update_broadcast = True
             
@@ -257,6 +269,155 @@ async def analyze_image_task(img_url: str):
     except Exception as e:
         print(f"[AI] Error during analysis: {e}")
 
+
+async def anomaly_monitor():
+    """
+    Background loop to check for ongoing anomalies and send 5-min reminders.
+    """
+    global latest_sensor_data, active_anomalies
+    while True:
+        try:
+            now = datetime.now()
+            with anomaly_lock:
+                # 1. Temperature Check (> 5C is unsafe)
+                if latest_sensor_data["temperature"] > 5:
+                    await handle_anomaly("temperature", f"Critical Temperature: {latest_sensor_data['temperature']}°C", now)
+                else:
+                    await resolve_anomaly("temperature", now)
+
+                # 2. Humidity Check (> 60% is high)
+                if latest_sensor_data["humidity"] > 60:
+                    await handle_anomaly("humidity", f"High Humidity: {latest_sensor_data['humidity']}%", now)
+                else:
+                    await resolve_anomaly("humidity", now)
+
+                # 3. Door Open Check
+                if latest_sensor_data["doorOpen"]:
+                    await handle_anomaly("door", "Door Left Open", now)
+                else:
+                    await resolve_anomaly("door", now)
+
+                # 4. Freezer Moisture Check
+                # Use moistureAlert as the source of truth set in MQTT handler
+                if latest_sensor_data.get("moistureAlert"):
+                    await handle_anomaly("freeze", f"Freezer Defrost: {latest_sensor_data.get('freezerStatus', 'Melting')}", now)
+                else:
+                    await resolve_anomaly("freeze", now)
+
+        except Exception as e:
+            print(f"[Anomalies] Error in monitor loop: {e}")
+        
+        await asyncio.sleep(10) # Check every 10 seconds
+
+async def handle_anomaly(a_type: str, info: str, now: datetime):
+    global active_anomalies
+    if a_type not in active_anomalies:
+        # NEW ANOMALY DETECTED
+        print(f"DEBUG: [Anomalies] DETECTED {a_type}: {info}")
+        active_anomalies[a_type] = {
+            "start": now,
+            "last_remind": now,
+            "info": info
+        }
+        # Initial Alert
+        await trigger_alert(a_type, info, is_initial=True)
+    else:
+        # EXISTING ANOMALY: Check for 5-minute reminder
+        state = active_anomalies[a_type]
+        if now - state["last_remind"] >= timedelta(minutes=5):
+            print(f"DEBUG: [Anomalies] RECURRING REMINDER for {a_type}")
+            state["last_remind"] = now
+            await trigger_alert(a_type, info, is_initial=False)
+
+async def resolve_anomaly(a_type: str, now: datetime):
+    global active_anomalies
+    if a_type in active_anomalies:
+        state = active_anomalies.pop(a_type)
+        duration = now - state["start"]
+        duration_mins = int(duration.total_seconds() / 60)
+        
+        # Lowered to 0 for testing persistence immediately
+        if duration_mins >= 0: 
+            print(f"DEBUG: [Anomalies] RESOLVED {a_type} after {duration_mins} mins. Saving to Supabase...")
+            event_data = {
+                "type": a_type,
+                "info": state["info"],
+                "start_time": state["start"].isoformat(),
+                "end_time": now.isoformat(),
+                "duration_mins": duration_mins
+            }
+            res = uploadInventory.save_anomaly_event(event_data)
+            print(f"DEBUG: [Supabase] Save Response: {res}")
+            # ... refresh broadcast ...
+            await manager.broadcast({
+                "type": "notification_refresh",
+                "data": {
+                    "alert_category": a_type,
+                    "alert_info": state["info"],
+                    "duration_mins": duration_mins
+                }
+            })
+        else:
+            print(f"DEBUG: [Anomalies] {a_type} resolved quickly ({duration.total_seconds():.1f}s). Skipping Supabase log.")
+
+async def trigger_alert(a_type: str, info: str, is_initial: bool):
+    """
+    Sends ephemeral WS toast and optionally an email.
+    """
+    print(f"DEBUG: [Anomalies] TRIGGERING ALERT - Type: {a_type}, Initial: {is_initial}")
+    
+    # WebSocket Toast
+    await manager.broadcast({
+        "type": "reminder_toast",
+        "data": {
+            "title": "Fridge Alert" if is_initial else "Personalized Reminder",
+            "message": info if is_initial else f"{latest_sensor_data.get('user_name', 'User')}, {info}. Please check.",
+            "alert_category": "error" if a_type in ["temperature", "freeze"] else "warning"
+        }
+    })
+
+    # 2. Email (Only for initial and if enabled in settings)
+    if is_initial and latest_sensor_data.get("email_enabled", True):
+        msg = f"{info}. Please check your fridge!"
+        if a_type == "door":
+            msg = f"The door has been open for 5 minutes. Please remember to close it."
+        await send_email_notification(f"SmartFridge Alert: {a_type.capitalize()}", msg)
+    elif is_initial:
+        print(f"DEBUG: [Email] Suppression - Notifications are disabled for this user.")
+
+import resend
+
+async def send_email_notification(subject: str, message: str):
+    """
+    Sends an email notification using the official Resend SDK.
+    """
+    api_key = os.getenv("RESEND_API_KEY", "re_HR53phhq_NHiRSBKSLSeURT1dbdWmCenX")
+    recipient = os.getenv("USER_EMAIL", "limmiinning@gmail.com")
+
+    if not api_key:
+        print(f"DEBUG: [Resend] Skipping. Missing RESEND_API_KEY.")
+        return
+
+    try:
+        print(f"DEBUG: [Resend] SDK Sending to {recipient}...")
+        resend.api_key = api_key
+        
+        params = {
+            "from": "SmartFridge <onboarding@resend.dev>",
+            "to": [recipient],
+            "subject": subject,
+            "html": f"<strong>{subject}</strong><p>{message}</p>"
+        }
+
+        # SDK call (Synchronous, so we wrap in executor)
+        loop = asyncio.get_running_loop()
+        r = await loop.run_in_executor(None, lambda: resend.Emails.send(params))
+        
+        print(f"DEBUG: [Resend] Success! ID: {r.get('id')}")
+            
+    except Exception as e:
+        print(f"DEBUG: [Resend] SDK Error: {e}")
+
 mqtt_client = mqtt.Client()
 mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 mqtt_client.on_connect = on_connect
@@ -268,6 +429,7 @@ async def startup_event():
     main_loop = asyncio.get_running_loop()
     mqtt_client.connect_async(MQTT_BROKER, MQTT_PORT, 60)
     mqtt_client.loop_start()
+    asyncio.create_task(anomaly_monitor())
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -346,12 +508,12 @@ BRAND_ASSETS = {
     "LOTUS": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=1200",
     "AEON": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
     "MYDIN": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=1200",
-    "ECONSAVE": "https://images.unsplash.com/photo-1604719312563-88241df50038?auto=format&fit=crop&q=80&w=1200",
+    "ECONSAVE": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=1200",
     "VILLAGE GROCER": "https://images.unsplash.com/photo-1583258292688-d0213dc5a3a8?auto=format&fit=crop&q=80&w=1200",
     "JAYA GROCER": "https://images.unsplash.com/photo-1506484334406-f112cae3f94c?auto=format&fit=crop&q=80&w=1200",
     "99 SPEEDMART": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
     "KK SUPER MART": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
-    "7-ELEVEN": "https://images.unsplash.com/photo-1604719312563-88241df50038?auto=format&fit=crop&q=80&w=1200",
+    "7-ELEVEN": "https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&q=80&w=1200",
     "BIG": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
 }
 
@@ -770,6 +932,26 @@ def save_shopping_item(item: ShoppingItem):
     if result:
         return {"status": "success", "data": result.data[0] if result.data else None}
     raise HTTPException(status_code=500, detail="Failed to save shopping item")
+
+@app.get("/api/anomaly-events")
+def get_anomaly_events():
+    return uploadInventory.get_anomaly_events()
+
+class UserConfig(BaseModel):
+    name: str
+    email: str
+    email_enabled: bool = True
+
+@app.post("/api/user-config")
+def set_user_config(config: UserConfig):
+    global latest_sensor_data
+    # Store in memory for this session
+    os.environ["USER_EMAIL"] = config.email
+    # Update latest_sensor_data for personalization and alert logic
+    latest_sensor_data["user_name"] = config.name
+    latest_sensor_data["email_enabled"] = config.email_enabled
+    print(f"[Config] User {config.name} ({config.email}) registered. Email alerts: {'Enabled' if config.email_enabled else 'Disabled'}")
+    return {"status": "success"}
 
 @app.delete("/api/shopping-list/{item_id}")
 def delete_shopping_item(item_id: str):
