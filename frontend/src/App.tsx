@@ -586,8 +586,9 @@ const App: React.FC = () => {
 
             // Trigger search with the urgent item
             const results = await searchStores(mostUrgent.name, userLocation.lat, userLocation.lng);
-            setNearestStores(results.slice(0, 5));
-            setCheapestStores([...results].sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
+            const filtered = results.filter((s: any) => !s.premise.toLowerCase().includes('99 speedmart 2403'));
+            setNearestStores(filtered.slice(0, 5));
+            setCheapestStores([...filtered].sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
           }
         }
       };
@@ -707,8 +708,9 @@ const App: React.FC = () => {
       if (locMatch) {
         console.log(`[Search] Cache hit for "${query}"`);
         const results = cached.results;
-        setNearestStores(results.slice(0, 5));
-        setCheapestStores([...results].sort((a, b) => a.min_price - b.min_price).slice(0, 5));
+        const filtered = results.filter((s: any) => !s.premise.toLowerCase().includes('99 speedmart 2403'));
+        setNearestStores(filtered.slice(0, 5));
+        setCheapestStores([...filtered].sort((a, b) => a.min_price - b.min_price).slice(0, 5));
         setIsSearchingStores(false); // Ensure loader is hidden
         return;
       }
@@ -726,8 +728,9 @@ const App: React.FC = () => {
         userLocation?.lng
       );
 
-      setNearestStores(results.slice(0, 5));
-      setCheapestStores(results.sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
+      const filtered = results.filter((s: any) => !s.premise.toLowerCase().includes('99 speedmart 2403'));
+      setNearestStores(filtered.slice(0, 5));
+      setCheapestStores(filtered.sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
 
       // 2. Save to Cache
       setSearchCache(prev => ({
