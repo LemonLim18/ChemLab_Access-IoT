@@ -22,9 +22,17 @@ def download_and_aggregate():
     )
 
     # ---- USE CACHE IF ALLOWED ----
-    if os.path.exists(aggregated_file) and today_day not in refresh_days:
-        print(f"[✓] Using cached aggregated data: {aggregated_file}")
-        return pd.read_csv(aggregated_file)
+    if os.path.exists(aggregated_file):
+        # Check if file was modified today
+        file_mod_time = datetime.fromtimestamp(os.path.getmtime(aggregated_file))
+        is_updated_today = file_mod_time.date() == now.date()
+        
+        # Use cache if updated today OR if today is NOT a refresh day
+        if is_updated_today or today_day not in refresh_days:
+            print(f"[✓] Using cached aggregated data: {aggregated_file}")
+            if is_updated_today:
+                print(f"    (Already updated today at {file_mod_time.strftime('%I:%M %p')})")
+            return pd.read_csv(aggregated_file)
 
     print("[↻] Refreshing PriceCatcher data...")
 

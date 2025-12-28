@@ -16,6 +16,8 @@ interface NavbarProps {
   userLocation: { lat: number, lng: number } | null;
   isLocating: boolean;
   userName?: string;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({
@@ -30,22 +32,11 @@ const Navbar: React.FC<NavbarProps> = ({
   onToggleLocation,
   userLocation,
   isLocating,
-  userName = "User"
+  userName = "User",
+  theme,
+  onToggleTheme
 }) => {
-  const [theme, setTheme] = useState<'light' | 'dark'>(
-    (localStorage.getItem('theme') as 'light' | 'dark') || 'light'
-  );
-
   const [view, setView] = useState<'notifications' | 'logs'>('notifications');
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
-  };
 
   const toggleView = () => {
     const nextView = view === 'notifications' ? 'logs' : 'notifications';
@@ -93,7 +84,7 @@ const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         {/* Theme Toggle */}
-        <button className="btn btn-ghost btn-circle" onClick={toggleTheme} title="Toggle Theme">
+        <button className="btn btn-ghost btn-circle" onClick={onToggleTheme} title="Toggle Theme">
           {theme === 'light' ? <Moon size={20} /> : <Sun size={20} className="text-warning" />}
         </button>
 

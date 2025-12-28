@@ -5,7 +5,7 @@ from supabase import create_client
 from datetime import datetime
 
 # CONFIG
-MQTT_BROKER = "35.194.40.109"   # your GCP VM IP (where mosquitto runs)
+MQTT_BROKER = "104.198.67.66"   # your GCP VM IP (where mosquitto runs)
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"

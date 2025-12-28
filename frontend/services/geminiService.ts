@@ -1,8 +1,8 @@
 import type { FridgeItem, Recipe } from "../types";
 
-const API_BASE_URL = 'http://192.168.1.116:8000'; // Updated to match current machine IP
+export const API_BASE_URL = 'http://192.168.1.116:8000'; // Updated to match current machine IP
 
-export const getRecipeSuggestions = async (items: FridgeItem[], userPrompt: string = ''): Promise<Recipe[]> => {
+export const getRecipeSuggestions = async (items: FridgeItem[], userPrompt: string = '', strictMode: boolean = false): Promise<Recipe[]> => {
 	try {
 		const response = await fetch(`${API_BASE_URL}/generate-recipe`, {
 			method: 'POST',
@@ -11,7 +11,8 @@ export const getRecipeSuggestions = async (items: FridgeItem[], userPrompt: stri
 			},
 			body: JSON.stringify({
 				items,
-				user_prompt: userPrompt
+				user_prompt: userPrompt,
+				strict_mode: strictMode
 			}),
 		});
 

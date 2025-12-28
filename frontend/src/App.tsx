@@ -89,6 +89,9 @@ const App: React.FC = () => {
   const [fullLocationName, setFullLocationName] = useState<string | null>(() => {
     return localStorage.getItem('smart_fridge_full_location_name');
   });
+  const [theme, setTheme] = useState<'light' | 'dark'>(
+    (localStorage.getItem('theme') as 'light' | 'dark') || 'light'
+  );
   const [isLocating, setIsLocating] = useState(false);
   const [searchCache, setSearchCache] = useState<Record<string, {
     results: StoreResult[],
@@ -160,6 +163,11 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('smart_fridge_search_cache', JSON.stringify(searchCache));
   }, [searchCache]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     const authChannel = new BroadcastChannel('supabase_auth_sync');
@@ -1045,6 +1053,8 @@ const App: React.FC = () => {
         userLocation={userLocation}
         isLocating={isLocating}
         userName={userName || 'User'}
+        theme={theme}
+        onToggleTheme={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
       />
 
       {/* Persistent Toasts (Fade In/Out) */}
@@ -1986,7 +1996,7 @@ const App: React.FC = () => {
       )}
 
       <HoverPreviewModal modal={modal} items={LAB_PROJECTS} />
-      <FloatingSensorModal modal={sensorModal} history={sensorHistory} />
+      <FloatingSensorModal modal={sensorModal} history={sensorHistory} theme={theme} />
     </div>
   );
 };

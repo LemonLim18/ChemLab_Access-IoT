@@ -130,7 +130,7 @@ manager = ConnectionManager()
 
 # MQTT Config
 # GCP
-MQTT_BROKER = "34.30.13.100"
+MQTT_BROKER = "104.198.67.66"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"
@@ -488,6 +488,7 @@ class RecommendRow(BaseModel):
 class RecipeRequest(BaseModel):
     items: List[Dict[str, Any]]
     user_prompt: Optional[str] = ""
+    strict_mode: bool = False
 
 class RecipeDetailsRequest(BaseModel):
     recipe_name: str
@@ -837,7 +838,7 @@ def recommend(req: RecommendRequest):
 
 @app.post("/generate-recipe")
 def generate_recipe(req: RecipeRequest):
-    return geminiRecipe.generate_recipes(req.items, req.user_prompt)
+    return geminiRecipe.generate_recipes(req.items, req.user_prompt, req.strict_mode)
 
 @app.post("/recipe-details")
 def recipe_details(req: RecipeDetailsRequest):
@@ -965,10 +966,14 @@ def get_saved_recipes():
 
 @app.post("/api/recipes/save")
 def save_recipe(recipe: Dict[str, Any]):
-    result = uploadInventory.save_recipe_to_supabase(recipe)
-    if result:
-        return {"status": "success"}
-    raise HTTPException(status_code=500, detail="Failed to save recipe")
+    try:
+        result = uploadInventory.save_recipe_to_supabase(recipe)
+        if result:
+            return {"status": "success"}
+        raise HTTPException(status_code=500, detail="Unknown error saving recipe")
+    except Exception as e:
+        print(f"[API] Error in save_recipe: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/recipes/saved/{recipe_id}")
 def delete_saved_recipe(recipe_id: str):

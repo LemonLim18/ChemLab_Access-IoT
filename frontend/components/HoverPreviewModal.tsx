@@ -1,3 +1,5 @@
+// THIS IS FOR TESTING IN THE LAB PAGE
+
 import { useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import gsap from "gsap";

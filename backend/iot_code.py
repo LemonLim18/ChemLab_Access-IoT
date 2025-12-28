@@ -29,7 +29,7 @@ print("Successfully connected to Supabase!")
 # ---------- CONFIG ----------
 # GCP
 DEVICE_ID = "fridge-01"
-MQTT_BROKER = "34.30.13.100"
+MQTT_BROKER = "104.198.67.66"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"

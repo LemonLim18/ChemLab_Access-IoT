@@ -5,7 +5,7 @@
 #define WIFI_PASSWORD "Elephant18!"
 
 // MQTT Config
-const char* mqtt_server = "136.111.11.0";
+const char* mqtt_server = "104.198.67.66";
 const int mqtt_port = 1883;
 const char* mqtt_user = "smartfridge";
 const char* mqtt_pass = "password";

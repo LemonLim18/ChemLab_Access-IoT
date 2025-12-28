@@ -42,12 +42,20 @@ def safe_json_parse(text: str) -> Any:
         print(f"Raw text that failed: {text}")
         return None
 
-def generate_recipes(items: List[Dict[str, Any]], user_prompt: str = "") -> List[Dict[str, Any]]:
+def generate_recipes(items: List[Dict[str, Any]], user_prompt: str = "", strict_mode: bool = False) -> List[Dict[str, Any]]:
     item_names = ", ".join([i.get("name", "") for i in items])
+    
+    strict_instruction = ""
+    if strict_mode:
+        strict_instruction = "STRICT RULE: Focus 100% on the available items. Do NOT suggest recipes that require missing ingredients. Use only what is in the fridge."
+    else:
+        strict_instruction = "FLEXIBLE RULE: Prioritize available items, but you can suggest adding 1-2 minor ingredients if it makes the dish significantly better."
+
     prompt = f"""
         Inventory: {item_names}.
         User Request: {user_prompt or 'Suggest anything good.'}
-        Role: You are a professional chef. Suggest 3 creative recipes using mostly the available inventory. 
+        Role: You are a professional chef. Suggest 3 creative recipes.
+        {strict_instruction}
         Format: Return as JSON array of recipe objects.
         Each object must have: name, description, missingIngredients (list), cookTime, difficulty.
     """

@@ -273,13 +273,12 @@ def save_recipe_to_supabase(recipe: Dict[str, Any]):
             "created_at": datetime.now().isoformat()
         }
         
-        # We use upsert keyed by name and device_id if we want to avoid duplicates
-        # But for simplicity, we search for existing by name first or just insert
         response = supabase.table("saved_recipes").insert(data).execute()
         return response
     except Exception as e:
-        print(f"[Supabase] Error saving recipe: {e}")
-        return None
+        print(f"[Supabase] CRITICAL ERROR saving recipe: {e}")
+        # Re-raise so server.py can catch it and report it
+        raise e
 
 def get_saved_recipes() -> List[Dict[str, Any]]:
     """
