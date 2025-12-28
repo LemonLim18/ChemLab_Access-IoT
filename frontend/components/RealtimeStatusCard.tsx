@@ -7,9 +7,10 @@ import type { SensorData } from '../types';
 interface RealtimeStatusCardProps {
   data: SensorData;
   history: SensorData[];
+  onHoverSensor: (type: 'temperature' | 'humidity' | null) => void;
 }
 
-const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }) => {
+const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history, onHoverSensor }) => {
   const getTempBadge = (t: number) => {
     if (t > 7) return 'badge-error';
     if (t > 5) return 'badge-warning';
@@ -26,7 +27,11 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Temperature */}
-          <div className="flex flex-col gap-1 p-3 rounded-2xl bg-base-200/50">
+          <div
+            className="flex flex-col gap-1 p-3 rounded-2xl bg-base-200/50 cursor-pointer hover:bg-base-200 transition-colors"
+            onMouseEnter={() => onHoverSensor('temperature')}
+            onMouseLeave={() => onHoverSensor(null)}
+          >
             <div className="flex items-center justify-between">
               <Thermometer size={18} className="text-primary" />
               <span className={`badge badge-sm ${getTempBadge(data.temperature)}`}>
@@ -46,7 +51,11 @@ const RealtimeStatusCard: React.FC<RealtimeStatusCardProps> = ({ data, history }
           </div>
 
           {/* Humidity */}
-          <div className="flex flex-col gap-1 p-3 rounded-2xl bg-base-200/50">
+          <div
+            className="flex flex-col gap-1 p-3 rounded-2xl bg-base-200/50 cursor-pointer hover:bg-base-200 transition-colors"
+            onMouseEnter={() => onHoverSensor('humidity')}
+            onMouseLeave={() => onHoverSensor(null)}
+          >
             <div className="flex items-center justify-between">
               <Droplets size={18} className="text-info" />
               <span className="badge badge-sm badge-success">OK</span>

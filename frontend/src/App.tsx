@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Swal from 'sweetalert2';
-import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Map, Camera, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils, List, ChevronRight, Bell, Eye, X } from 'lucide-react';
+import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Map, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils, List, ChevronRight, Bell, X, Beaker } from 'lucide-react';
+import HoverPreviewModal from '../components/HoverPreviewModal';
+import FloatingSensorModal from '../components/FloatingSensorModal';
 
 import type { FridgeItem, SensorData, Notification, Recipe, StoreResult, BuyItem } from '../types';
 import { FreshnessStatus } from '../types';
@@ -33,7 +35,30 @@ const getCategoryIcon = (category: string) => {
   }
 };
 
-const TABS = ['dashboard', 'search', 'inventory', 'recipes', 'shop', 'settings'];
+const TABS = ['dashboard', 'search', 'inventory', 'recipes', 'shop', 'settings', 'lab'];
+
+const LAB_PROJECTS = [
+  {
+    name: "AI Inventory Vision",
+    thumbnail: "https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?q=80&w=1000&auto=format&fit=crop",
+    short_name: "Vision"
+  },
+  {
+    name: "Smart Recipe Engine",
+    thumbnail: "https://images.unsplash.com/photo-1556910103-1c02745aae4d?q=80&w=1000&auto=format&fit=crop",
+    short_name: "Recipes"
+  },
+  {
+    name: "IoT Sensor Mesh",
+    thumbnail: "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1000&auto=format&fit=crop",
+    short_name: "IoT"
+  },
+  {
+    name: "Price Catcher AI",
+    thumbnail: "https://images.unsplash.com/photo-1553729459-efe14ef6055d?q=80&w=1000&auto=format&fit=crop",
+    short_name: "Price"
+  }
+];
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -49,6 +74,8 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [session, setSession] = useState<any>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [modal, setModal] = useState({ active: false, index: 0 });
+  const [sensorModal, setSensorModal] = useState<{ active: boolean; type: 'temperature' | 'humidity' | null }>({ active: false, type: null });
 
   const [buyList, setBuyList] = useState<BuyItem[]>([]);
   const [manualBuyInput, setManualBuyInput] = useState('');
@@ -1134,7 +1161,11 @@ const App: React.FC = () => {
                   </div>
                 </div>
               )}
-              <RealtimeStatusCard data={sensors} history={sensorHistory} />
+              <RealtimeStatusCard
+                data={sensors}
+                history={sensorHistory}
+                onHoverSensor={(type) => setSensorModal({ active: type !== null, type })}
+              />
 
               <section>
                 <div className="flex justify-between items-center mx-3 mb-3">
@@ -1863,6 +1894,43 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* TAB 7: LAB (INTERACTIVE EXPERIMENTS) */}
+          <div className="w-full shrink-0 h-full overflow-y-auto no-scrollbar pt-4 px-4 pb-4">
+            <div className="max-w-4xl mx-auto space-y-6 pb-10">
+              <div className="card bg-base-100 shadow-xl border border-base-200 overflow-hidden">
+                <div className="card-body p-8">
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                      <Beaker size={24} />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-black tracking-tight">Interactive Lab</h2>
+                      <p className="text-xs opacity-50 font-bold uppercase tracking-widest">Cursor-Follow Previews</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {LAB_PROJECTS.map((project, index) => (
+                      <div
+                        key={index}
+                        onMouseEnter={() => setModal({ active: true, index })}
+                        onMouseLeave={() => setModal({ active: false, index })}
+                        className="group flex flex-col md:flex-row justify-between items-start md:items-center p-6 border-b border-base-content/5 hover:bg-base-200 transition-all cursor-pointer rounded-2xl"
+                      >
+                        <h3 className="text-2xl md:text-3xl font-black group-hover:px-4 transition-all duration-300">
+                          {project.name}
+                        </h3>
+                        <p className="text-xs font-bold uppercase tracking-widest opacity-30 group-hover:opacity-100 transition-all">
+                          Design & Interaction
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
 
@@ -1912,6 +1980,10 @@ const App: React.FC = () => {
         <button className={activeTab === 'settings' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('settings')}>
           <User size={20} />
           <span className="dock-label text-[9px] uppercase font-black">Me</span>
+        </button>
+        <button className={activeTab === 'lab' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('lab')}>
+          <Beaker size={20} />
+          <span className="dock-label text-[9px] uppercase font-black">Lab</span>
         </button>
       </div>
 
@@ -2084,6 +2156,9 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      <HoverPreviewModal modal={modal} items={LAB_PROJECTS} />
+      <FloatingSensorModal modal={sensorModal} history={sensorHistory} />
     </div>
   );
 };
