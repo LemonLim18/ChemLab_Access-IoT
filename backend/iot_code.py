@@ -27,8 +27,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 print("Successfully connected to Supabase!")
 
 # ---------- CONFIG ----------
+# GCP
 DEVICE_ID = "fridge-01"
-MQTT_BROKER = "35.194.40.109"
+MQTT_BROKER = "34.30.13.100"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"
@@ -44,6 +45,9 @@ os.makedirs(LOCAL_IMAGE_DIR, exist_ok=True)
 
 # GPIO pins
 IR_PIN = 24
+LED_PIN = 18            # Physical Pin 12
+LED_DURATION = 10       # Seconds to stay on for capture
+
 # CircuitPython style
 sensor = adafruit_dht.DHT11(board.D4)
 
@@ -70,6 +74,8 @@ prev_door_closed = None                         # ADDED: For edge-trigger detect
 # ---------- GPIO SETUP ----------
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(IR_PIN, GPIO.IN)
+GPIO.setup(LED_PIN, GPIO.OUT)
+GPIO.output(LED_PIN, GPIO.LOW) # Ensure off initially
 
 # ---------- MQTT SETUP ----------
 client = mqtt.Client(client_id=DEVICE_ID, clean_session=True)
@@ -159,7 +165,18 @@ def upload_image_to_supabase(local_path: str) -> str | None:
         print(f"[Supabase Upload Error] {e}")
         return None
 
+def lead_flash_timer():
+    """Timer function to turn off LED after duration"""
+    print(f"[LED] Flash ON for {LED_DURATION}s")
+    GPIO.output(LED_PIN, GPIO.HIGH)
+    time.sleep(LED_DURATION)
+    GPIO.output(LED_PIN, GPIO.LOW)
+    print("[LED] Flash OFF")
+
 def capture_and_upload():
+    # Trigger LED flash in a separate thread so it doesn't block capture/upload
+    threading.Thread(target=lead_flash_timer, daemon=True).start()
+    
     with dht_lock:
         local = capture_image()
     if not local:

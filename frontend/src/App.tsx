@@ -1365,7 +1365,7 @@ const App: React.FC = () => {
                 <h3 className="font-bold text-lg flex items-center gap-2 px-6">
                   <MapPin size={20} className="text-secondary" /> Nearest Stores
                 </h3>
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar px-6 min-h-[160px] relative">
+                <div className="flex gap-4 ml-4 overflow-x-auto pb-4 no-scrollbar min-h-[160px] relative">
                   {isSearchingStores ? (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-base-100/60 backdrop-blur-[2px] rounded-3xl animate-in fade-in duration-300">
                       <div className="flex flex-col items-center gap-3">

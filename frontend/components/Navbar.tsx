@@ -113,15 +113,15 @@ const Navbar: React.FC<NavbarProps> = ({
                 <div className="tabs tabs-boxed bg-base-200/50 p-1 flex">
                   <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setView('notifications'); }}
-                    className={`flex-1 tab tab-sm font-black transition-all duration-300 ${view === 'notifications' ? 'tab-active !bg-primary !text-primary-content shadow-sm' : 'opacity-50 hover:opacity-100'}`}
+                    className={`rounded-xl flex-1 tab tab-sm font-black transition-all duration-300 ${view === 'notifications' ? 'tab-active !bg-primary !text-primary-content shadow-sm' : 'opacity-50 hover:opacity-100'}`}
                   >
-                    ALERTS
+                    Notifications
                   </button>
                   <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleView(); }}
-                    className={`flex-1 tab tab-sm font-black transition-all duration-300 ${view === 'logs' ? 'tab-active !bg-primary !text-primary-content shadow-sm' : 'opacity-50 hover:opacity-100'}`}
+                    className={`rounded-xl flex-1 tab tab-sm font-black transition-all duration-300 ${view === 'logs' ? 'tab-active !bg-primary !text-primary-content shadow-sm' : 'opacity-50 hover:opacity-100'}`}
                   >
-                    HISTORY
+                    Alert Logs
                   </button>
                 </div>
 
@@ -220,6 +220,8 @@ const Navbar: React.FC<NavbarProps> = ({
                               <span>From: {new Date(e.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                               <span>•</span>
                               <span>Duration: {e.duration_mins} mins</span>
+                              <span>•</span>
+                              <span>Until: {new Date(e.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                           </div>
                         </div>
