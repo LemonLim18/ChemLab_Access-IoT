@@ -1,39 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Swal from 'sweetalert2';
-import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Map, Package, Activity, MapPin, DollarSign, User, LogOut, Send, ArrowLeft, BookOpen, Clock, Sparkles, Trash2, ListFilter, RefreshCw, Check, Milk, Carrot, Apple, Beef, CupSoda, Utensils, List, ChevronRight, Bell, X, Beaker } from 'lucide-react';
+import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Map, Package, Activity, MapPin, DollarSign, User, LogOut, Send, Clock, Trash2, ListFilter, RefreshCw, Check, List, ChevronRight, Bell, X, Beaker } from 'lucide-react';
 import HoverPreviewModal from '../components/HoverPreviewModal';
 import FloatingSensorModal from '../components/FloatingSensorModal';
 
-import type { FridgeItem, SensorData, Notification, Recipe, StoreResult, BuyItem } from '../types';
+import type { FridgeItem, SensorData, Notification, StoreResult, BuyItem } from '../types';
 import { FreshnessStatus } from '../types';
 import { INITIAL_INVENTORY, INITIAL_SENSORS, INITIAL_NOTIFICATIONS } from '../constants';
 import Navbar from '../components/Navbar';
 import RealtimeStatusCard from '../components/RealtimeStatusCard';
 import SlotCard from '../components/SlotCard';
+import { getCategoryIcon } from './utils/iconUtils';
 import CameraModal from '../components/CameraModal';
 import Auth from '../components/Auth';
+import ChefAIView from '../components/ChefAIView';
 import { supabase } from './lib/supabaseClient';
 import {
-  getRecipeSuggestions,
-  getRecipeDetails,
   analyzeSnapshot,
   searchStores,
   getLocationName
 } from '../services/geminiService';
 
-
-
-const getCategoryIcon = (category: string) => {
-  const size = 18;
-  switch (category.toLowerCase()) {
-    case 'dairy': return <Milk size={size} className="text-blue-500" />;
-    case 'vegetables': return <Carrot size={size} className="text-orange-500" />;
-    case 'fruits': return <Apple size={size} className="text-red-500" />;
-    case 'meat': return <Beef size={size} className="text-red-700" />;
-    case 'beverages': return <CupSoda size={size} className="text-cyan-500" />;
-    default: return <Utensils size={size} className="text-gray-400" />;
-  }
-};
 
 const TABS = ['dashboard', 'search', 'inventory', 'recipes', 'shop', 'settings', 'lab'];
 
@@ -65,12 +52,7 @@ const App: React.FC = () => {
   const [inventory, setInventory] = useState<FridgeItem[]>(INITIAL_INVENTORY);
   const [sensors, setSensors] = useState<SensorData>(INITIAL_SENSORS);
   const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
-  const [chefPrompt, setChefPrompt] = useState('');
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [isLoadingRecipes, setIsLoadingRecipes] = useState(false);
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [session, setSession] = useState<any>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -165,7 +147,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Background Lock Logic
-    const shouldLock = activeStoreModal || isCameraOpen || isAnalyzing || isLoadingDetails || selectedRecipe;
+    const shouldLock = activeStoreModal || isCameraOpen || isAnalyzing;
     if (shouldLock) {
       document.body.style.overflow = 'hidden';
       document.documentElement.style.overflow = 'hidden';
@@ -173,7 +155,7 @@ const App: React.FC = () => {
       document.body.style.overflow = '';
       document.documentElement.style.overflow = '';
     }
-  }, [activeStoreModal, isCameraOpen, isAnalyzing, isLoadingDetails, selectedRecipe]);
+  }, [activeStoreModal, isCameraOpen, isAnalyzing]);
 
   useEffect(() => {
     localStorage.setItem('smart_fridge_search_cache', JSON.stringify(searchCache));
@@ -826,56 +808,7 @@ const App: React.FC = () => {
     setIsAnalyzing(false);
   };
 
-  const handleFetchRecipes = async () => {
-    setIsLoadingRecipes(true);
-    setSelectedRecipe(null);
-    const suggestions = await getRecipeSuggestions(inventory, chefPrompt);
-    setRecipes(suggestions);
-    setIsLoadingRecipes(false);
-  };
 
-  const handleOpenCookbook = async (recipe: Recipe) => {
-    setIsLoadingDetails(true);
-    const details = await getRecipeDetails(recipe.name, inventory);
-    setSelectedRecipe({ ...recipe, ...details });
-    setIsLoadingDetails(false);
-  };
-
-  const handleFinishCooking = () => {
-    if (!selectedRecipe) return;
-
-    setInventory(prev => prev.map(item => {
-      const isUsed = selectedRecipe.fullIngredients?.some(ing =>
-        ing.toLowerCase().includes(item.name.toLowerCase())
-      );
-      if (isUsed) {
-        return { ...item, quantity: Math.max(0, item.quantity - 30) };
-      }
-      return item;
-    }));
-
-    setNotifications(prev => [{
-      id: Date.now().toString(),
-      title: 'Meal Cooked!',
-      message: `Inventory updated after preparing ${selectedRecipe.name}.`,
-      type: 'success',
-      timestamp: new Date().toISOString(),
-      isRead: false
-    }, ...prev]);
-
-    setSelectedRecipe(null);
-    Swal.fire({
-      title: 'Meal Prepared!',
-      text: 'Inventory levels updated automatically.',
-      icon: 'success',
-      confirmButtonText: 'Great!',
-      customClass: {
-        popup: 'rounded-2xl border border-base-content/10 shadow-2xl',
-        confirmButton: 'btn btn-success text-white'
-      },
-      buttonsStyling: false
-    });
-  };
 
   const removeItem = async (id: string) => {
     const result = await Swal.fire({
@@ -1083,6 +1016,7 @@ const App: React.FC = () => {
   };
 
   const lowStockItems = inventory.filter(i => i.quantity <= i.reorderThreshold);
+  const expiringItems = inventory.filter(i => i.status === FreshnessStatus.NEAR_EXPIRY);
 
   if (isAuthChecking) {
     return (
@@ -1614,113 +1548,12 @@ const App: React.FC = () => {
 
           {/* TAB 4: CHEF AI */}
           <div className="w-full shrink-0 h-full overflow-y-auto no-scrollbar pt-4 px-4 pb-4">
-            <div className="max-w-4xl mx-auto space-y-6 pb-10">
-              {selectedRecipe ? (
-                <div className="card bg-base-100 shadow-2xl border border-base-200 animate-in zoom-in duration-300">
-                  <div className="card-body p-4 sm:p-8">
-                    <button className="btn btn-sm btn-ghost gap-2 mb-4" onClick={() => setSelectedRecipe(null)}>
-                      <ArrowLeft size={16} /> Back to Suggestions
-                    </button>
-                    <div className="flex flex-col md:flex-row gap-8">
-                      <div className="w-full md:w-1/3">
-                        <div className="aspect-square bg-base-200 rounded-3xl flex items-center justify-center mb-4">
-                          <ChefHat size={80} className="text-primary opacity-20" />
-                        </div>
-                        <div className="flex flex-col gap-2 p-4 bg-base-200/50 rounded-2xl">
-                          <h4 className="font-bold flex items-center gap-2 text-primary">
-                            <ShoppingCart size={18} /> Ingredients
-                          </h4>
-                          <ul className="text-sm space-y-2 mt-2">
-                            {selectedRecipe.fullIngredients?.map((ing, i) => (
-                              <li key={i} className="flex gap-2 items-start">
-                                <input type="checkbox" className="checkbox checkbox-xs checkbox-primary mt-1" defaultChecked />
-                                <span className="text-xs">{ing}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h2 className="text-3xl font-black mb-1">{selectedRecipe.name}</h2>
-                            <p className="opacity-60 text-sm">{selectedRecipe.description}</p>
-                          </div>
-                          <div className="badge badge-primary">{selectedRecipe.difficulty}</div>
-                        </div>
-                        <div className="flex gap-4 my-6 text-sm font-semibold opacity-70">
-                          <div className="flex items-center gap-2"><Clock size={16} /> {selectedRecipe.cookTime}</div>
-                          <div className="flex items-center gap-2"><BookOpen size={16} /> Official Cookbook</div>
-                        </div>
-                        <div className="space-y-6">
-                          <h4 className="font-bold text-xl flex items-center gap-2">
-                            <Sparkles size={20} className="text-warning" /> Instructions
-                          </h4>
-                          <div className="space-y-4">
-                            {selectedRecipe.instructions?.map((step, i) => (
-                              <div key={i} className="flex gap-4">
-                                <div className="w-8 h-8 rounded-full bg-primary text-primary-content flex items-center justify-center font-bold shrink-0 shadow-md">
-                                  {i + 1}
-                                </div>
-                                <p className="text-sm pt-1 leading-relaxed opacity-80">{step}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <button className="btn btn-primary btn-block mt-10 shadow-lg" onClick={handleFinishCooking}>
-                          <Check size={20} /> Finish Cooking & Update Stocks
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  <div className="card bg-base-100 shadow-xl border border-base-200 p-8 text-center">
-                    <ChefHat size={64} className="mx-auto text-primary mb-4 animate-bounce" />
-                    <h2 className="text-3xl font-black mb-2">Chef AI</h2>
-                    <p className="opacity-60 text-sm mb-8">Suggest a cuisine or diet and I'll find a match!</p>
-                    <div className="join w-full max-w-xl mx-auto shadow-lg rounded-full">
-                      <input
-                        type="text"
-                        placeholder="e.g. 'Low carb dinner', 'Asian style'..."
-                        className="input join-item w-full bg-base-200"
-                        value={chefPrompt}
-                        onChange={(e) => setChefPrompt(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleFetchRecipes()}
-                      />
-                      <button
-                        className="btn btn-primary join-item px-8"
-                        onClick={handleFetchRecipes}
-                        disabled={isLoadingRecipes}
-                      >
-                        {isLoadingRecipes ? (
-                          <span className="loading loading-spinner loading-sm"></span>
-                        ) : (
-                          <Send size={20} />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                  {recipes.length > 0 && !isLoadingRecipes && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {recipes.map((recipe, idx) => (
-                        <div key={idx} className="card bg-base-100 shadow-md border border-base-200 p-4 hover:border-primary transition-all">
-                          <h3 className="font-bold text-base mb-1">{recipe.name}</h3>
-                          <p className="text-xs opacity-60 line-clamp-2 mb-3">{recipe.description}</p>
-                          <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-bold opacity-30 uppercase tracking-widest">{recipe.cookTime} • {recipe.difficulty}</span>
-                            <button className="btn btn-xs btn-primary gap-1" onClick={() => handleOpenCookbook(recipe)}>
-                              <BookOpen size={12} /> Cookbook
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <ChefAIView
+              inventory={inventory}
+              setInventory={setInventory}
+              onAddNotification={(n) => setNotifications(prev => [n, ...prev])}
+              expiringItems={expiringItems}
+            />
           </div>
 
           {/* TAB 5: TO-PURCHASE */}
@@ -1942,12 +1775,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {isLoadingDetails && (
-        <div className="fixed inset-0 z-100 bg-base-100/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
-          <BookOpen size={48} className="text-primary animate-bounce mb-4" />
-          <h3 className="text-xl font-bold">Chef AI is preparing your Cookbook...</h3>
-        </div>
-      )}
+
 
       <CameraModal
         isOpen={isCameraOpen}

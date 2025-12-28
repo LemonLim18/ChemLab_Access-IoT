@@ -958,3 +958,20 @@ def delete_shopping_item(item_id: str):
     if uploadInventory.delete_shopping_item(item_id):
         return {"status": "success"}
     raise HTTPException(status_code=500, detail="Failed to delete shopping item")
+
+@app.get("/api/recipes/saved")
+def get_saved_recipes():
+    return uploadInventory.get_saved_recipes()
+
+@app.post("/api/recipes/save")
+def save_recipe(recipe: Dict[str, Any]):
+    result = uploadInventory.save_recipe_to_supabase(recipe)
+    if result:
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Failed to save recipe")
+
+@app.delete("/api/recipes/saved/{recipe_id}")
+def delete_saved_recipe(recipe_id: str):
+    if uploadInventory.delete_saved_recipe(recipe_id):
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Failed to delete recipe")

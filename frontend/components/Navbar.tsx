@@ -32,8 +32,8 @@ const Navbar: React.FC<NavbarProps> = ({
   isLocating,
   userName = "User"
 }) => {
-  const [theme, setTheme] = useState<'cupcake' | 'dark'>(
-    (localStorage.getItem('theme') as 'cupcake' | 'dark') || 'cupcake'
+  const [theme, setTheme] = useState<'light' | 'dark'>(
+    (localStorage.getItem('theme') as 'light' | 'dark') || 'light'
   );
 
   const [view, setView] = useState<'notifications' | 'logs'>('notifications');
@@ -44,7 +44,7 @@ const Navbar: React.FC<NavbarProps> = ({
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme(prev => (prev === 'cupcake' ? 'dark' : 'cupcake'));
+    setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
   };
 
   const toggleView = () => {
@@ -94,7 +94,7 @@ const Navbar: React.FC<NavbarProps> = ({
 
         {/* Theme Toggle */}
         <button className="btn btn-ghost btn-circle" onClick={toggleTheme} title="Toggle Theme">
-          {theme === 'cupcake' ? <Moon size={20} /> : <Sun size={20} className="text-warning" />}
+          {theme === 'light' ? <Moon size={20} /> : <Sun size={20} className="text-warning" />}
         </button>
 
         {/* Notifications Dropdown */}

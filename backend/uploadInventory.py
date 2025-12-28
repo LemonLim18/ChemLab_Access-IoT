@@ -256,6 +256,68 @@ def delete_shopping_item(item_id: str):
         print(f"[Supabase] Error deleting shopping item: {e}")
         return False
 
+def save_recipe_to_supabase(recipe: Dict[str, Any]):
+    """
+    Saves a recipe to the 'saved_recipes' table.
+    """
+    try:
+        data = {
+            "device_id": DEVICE_ID,
+            "name": recipe.get("name"),
+            "description": recipe.get("description"),
+            "image_url": recipe.get("imageUrl"),
+            "cook_time": recipe.get("cookTime"),
+            "difficulty": recipe.get("difficulty"),
+            "full_ingredients": recipe.get("fullIngredients", []),
+            "instructions": recipe.get("instructions", []),
+            "created_at": datetime.now().isoformat()
+        }
+        
+        # We use upsert keyed by name and device_id if we want to avoid duplicates
+        # But for simplicity, we search for existing by name first or just insert
+        response = supabase.table("saved_recipes").insert(data).execute()
+        return response
+    except Exception as e:
+        print(f"[Supabase] Error saving recipe: {e}")
+        return None
+
+def get_saved_recipes() -> List[Dict[str, Any]]:
+    """
+    Retrieves all saved recipes for the current device.
+    """
+    try:
+        response = supabase.table("saved_recipes").select("*").eq("device_id", DEVICE_ID).order("created_at", desc=True).execute()
+        
+        # Map back to camelCase for frontend
+        recipes = []
+        for row in response.data:
+            recipes.append({
+                "id": row["id"],
+                "name": row["name"],
+                "description": row["description"],
+                "imageUrl": row["image_url"],
+                "cookTime": row["cook_time"],
+                "difficulty": row["difficulty"],
+                "fullIngredients": row["full_ingredients"],
+                "instructions": row["instructions"],
+                "createdAt": row["created_at"]
+            })
+        return recipes
+    except Exception as e:
+        print(f"[Supabase] Error fetching saved recipes: {e}")
+        return []
+
+def delete_saved_recipe(recipe_id: str):
+    """
+    Deletes a saved recipe.
+    """
+    try:
+        supabase.table("saved_recipes").delete().eq("id", recipe_id).execute()
+        return True
+    except Exception as e:
+        print(f"[Supabase] Error deleting recipe: {e}")
+        return False
+
 def sync_inventory_to_supabase(items: List[Dict[str, Any]], merge: bool = False):
     """
     Syncs inventory. 

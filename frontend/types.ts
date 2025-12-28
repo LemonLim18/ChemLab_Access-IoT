@@ -41,6 +41,7 @@ export interface Notification {
 }
 
 export interface Recipe {
+  id?: string;
   name: string;
   description: string;
   missingIngredients: string[];
@@ -48,6 +49,7 @@ export interface Recipe {
   difficulty: 'Easy' | 'Medium' | 'Hard';
   instructions?: string[];
   fullIngredients?: string[];
+  imageUrl?: string;
 }
 
 export interface PricePoint {
