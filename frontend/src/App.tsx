@@ -1460,8 +1460,20 @@ const App: React.FC = () => {
 
               {/* Cheapest Stores Row */}
               <div className="space-y-3">
-                <h3 className="font-bold text-lg flex items-center gap-2 px-6">
-                  <DollarSign size={20} className="text-success" /> Best Deals & Cheapest
+                <h3 className="font-bold text-lg flex items-center justify-between px-6">
+                  <div className="flex items-center gap-2">
+                    <DollarSign size={20} className="text-success" /> Best Deals & Cheapest
+                  </div>
+                  <button
+                    className="btn btn-ghost btn-xs text-xs opacity-40 hover:opacity-100 flex items-center gap-1"
+                    onClick={() => {
+                      setSearchCache({});
+                      handleStoreSearch();
+                    }}
+                    title="Refresh all store data"
+                  >
+                    <RefreshCw size={12} /> Sync Prices
+                  </button>
                 </h3>
                 <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar px-6 min-h-[160px] relative">
                   {isSearchingStores ? (

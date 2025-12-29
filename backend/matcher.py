@@ -6,6 +6,8 @@ import re
 
 def normalize(text: str) -> str:
     """Normalize text for better matching"""
+    if not isinstance(text, str):
+        return ""
     return (
         text.lower()
         .replace("-", " ")
