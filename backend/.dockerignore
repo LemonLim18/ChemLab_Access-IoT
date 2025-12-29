@@ -1,0 +1,17 @@
+.env
+.venv
+__pycache__
+csv_files
+old_ai_model
+fridge_model
+images
+.git
+.gitignore
+Dockerfile.server
+smartfridge-iot.service
+stable_recommender.py
+server_docker.py
+iot_code.py
+makerFeather.ino
+*.csv
+*.log

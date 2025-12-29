@@ -1,6 +1,6 @@
 # location.py
 import asyncio
-import winsdk.windows.devices.geolocation as wdg
+# import winsdk.windows.devices.geolocation as wdg
 from geopy.geocoders import Nominatim
 
 async def get_precise_coords():

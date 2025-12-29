@@ -125,11 +125,10 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # MQTT Config
-# GCP
-MQTT_BROKER = "136.119.234.10"
-MQTT_PORT = 1883
-MQTT_USER = "smartfridge"
-MQTT_PASS = "password"
+MQTT_BROKER = os.getenv("MQTT_BROKER", "136.119.234.10")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_USER = os.getenv("MQTT_USER", "smartfridge")
+MQTT_PASS = os.getenv("MQTT_PASS", "password")
 
 def on_connect(client, userdata, flags, rc):
     print(f"Connected to MQTT Broker with result code {rc}")
@@ -514,17 +513,28 @@ class ShoppingItem(BaseModel):
 
 # --- Store Visuals Engine (Malaysian Brands - Live Interior Demo) ---
 BRAND_ASSETS = {
-    "GIANT": "https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&q=80&w=1200",
-    "LOTUS": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=1200",
-    "AEON": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
-    "MYDIN": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=1200",
-    "ECONSAVE": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=1200",
-    "VILLAGE GROCER": "https://images.unsplash.com/photo-1583258292688-d0213dc5a3a8?auto=format&fit=crop&q=80&w=1200",
-    "JAYA GROCER": "https://images.unsplash.com/photo-1506484334406-f112cae3f94c?auto=format&fit=crop&q=80&w=1200",
-    "99 SPEEDMART": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
-    "KK SUPER MART": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
-    "7-ELEVEN": "https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&q=80&w=1200",
-    "BIG": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
+    # "GIANT": "https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&q=80&w=1200",
+    "GIANT": "https://assets.theedgemarkets.com/Giant.jpg",
+    # "LOTUS": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=1200",
+    "LOTUS": "https://corp.lotuss.com.my/stores/store-locator/lotuss-puchong",
+    # "AEON": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
+    "AEON": "https://assets.bwbx.io/images/users/iqjWHBFdfxIU/i2G8P4LD24RA/v0/-1x-1.webp",
+    # "MYDIN": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=1200",
+    "MYDIN": "https://i.nextmedia.com.au/News/MYDIN_partners_Zebra_Technologies_for_warehouse_and_ecommerce_operations.jpg",
+    # "ECONSAVE": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=1200",
+    "ECONSAVE": "https://econsave.com.my/wp-content/uploads/2020/03/Bingtaro.jpg",
+    # "VILLAGE GROCER": "https://images.unsplash.com/photo-1583258292688-d0213dc5a3a8?auto=format&fit=crop&q=80&w=1200",
+    "VILLAGE GROCER": "https://www.klgatewaymall.com/data/editor/stores/shopfront%20or%20food%20photos/village-grocer-front.jfif?v=1722179199884",
+    # "JAYA GROCER": "https://images.unsplash.com/photo-1506484334406-f112cae3f94c?auto=format&fit=crop&q=80&w=1200",
+    "JAYA GROCER": "https://cdn1.npcdn.net/userfiles/18859/image/Jaya_Grocer_Mont_Kiara.png",
+    # "99 SPEEDMART": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
+    "99 SPEEDMART": "https://theedgemalaysia.com/_next/image?url=https%3A%2F%2Fassets.theedgemarkets.com%2F99-Speed-Mart.jpg&w=1920&q=75",
+    # "KK SUPER MART": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
+    "KK SUPER MART": "https://cdn.sinchew.com.my/wp-content/uploads/2024/03/e79c9fe4b8bbe5ad97e79cbce8a29ce5ad90e9a38ee6b3a2efbd9c-e98193e6ad89e4bb8de99abee5b9b3e681afe68092e781ab-e7bd91e6b091e9859de985bfe69daf-2.jpg",
+    # "7-ELEVEN": "https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&q=80&w=1200",
+    "7-ELEVEN": "https://news.italianfood.net/wp-content/uploads/sites/2/2023/05/7-Eleven.jpeg",
+    # "BIG": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
+    "BIG": "https://directory.yellowbees.com.my/wp-content/uploads/2020/05/AEON-BiG.jpg",
 }
 
 def get_store_thumbnail(name: str, p_type: str = "", lat: Optional[float] = None, lon: Optional[float] = None):
