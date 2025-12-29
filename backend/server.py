@@ -62,6 +62,7 @@ latest_sensor_data = {
     "lastCaptureTime": None,
     "inventory": [],
     "shopping_list": [],
+    "isAnalyzing": False,
     "lastUpdated": datetime.now().isoformat()
 }
 
@@ -110,11 +111,6 @@ class ConnectionManager:
         self.active_connections.append(websocket)
         # Send latest data immediately upon connection
         await websocket.send_json({"type": "sensor_update", "data": latest_sensor_data})
-        if latest_sensor_data["latest_image_url"]:
-            await websocket.send_json({
-                "type": "capture_update", 
-                "data": {"image_url": latest_sensor_data["latest_image_url"]}
-            })
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
@@ -130,7 +126,7 @@ manager = ConnectionManager()
 
 # MQTT Config
 # GCP
-MQTT_BROKER = "104.198.67.66"
+MQTT_BROKER = "136.119.234.10"
 MQTT_PORT = 1883
 MQTT_USER = "smartfridge"
 MQTT_PASS = "password"
@@ -214,6 +210,13 @@ async def analyze_image_task(img_url: str):
     global latest_sensor_data, main_loop
     try:
         print(f"[AI] Starting image analysis for: {img_url}")
+        # Notify frontend that analysis has officially started
+        if main_loop:
+            latest_sensor_data["isAnalyzing"] = True
+            asyncio.run_coroutine_threadsafe(manager.broadcast({
+                "type": "analysis_status",
+                "data": {"status": "started", "timestamp": datetime.now().isoformat()}
+            }), main_loop)
         
         # 1. Fetch image content
         response = requests.get(img_url, timeout=10)
@@ -253,7 +256,7 @@ async def analyze_image_task(img_url: str):
         # 6. Refresh local state from DB to get the FULL merged list
         full_inventory = uploadInventory.get_inventory_items()
         latest_sensor_data["inventory"] = full_inventory
-        
+        latest_sensor_data["isAnalyzing"] = False
         print(f"[AI] Analysis complete. Merged DB now has {len(full_inventory)} items.")
         
         if main_loop:
@@ -268,6 +271,12 @@ async def analyze_image_task(img_url: str):
 
     except Exception as e:
         print(f"[AI] Error during analysis: {e}")
+        latest_sensor_data["isAnalyzing"] = False
+        if main_loop:
+            asyncio.run_coroutine_threadsafe(manager.broadcast({
+                "type": "analysis_status",
+                "data": {"status": "failed", "error": str(e), "timestamp": datetime.now().isoformat()}
+            }), main_loop)
 
 
 async def anomaly_monitor():

@@ -36,7 +36,7 @@ const SlotCard: React.FC<SlotCardProps> = ({ item, onEdit, onRemove }) => {
       {/* Main Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-2">
-          <h3 className="font-bold text-sm truncate">{item.name}</h3>
+          <h3 className="font-bold text-sm truncate capitalize">{item.name}</h3>
           <span className={`badge badge-xs ${getStatusColor(item.status)}`}>{item.status}</span>
           {isLow && (
             <span className="text-error animate-pulse">

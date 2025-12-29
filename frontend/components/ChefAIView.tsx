@@ -384,7 +384,7 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                                         {selectedRecipe.fullIngredients?.map((ing, i) => (
                                             <li key={i} className="flex gap-2 items-start">
                                                 <input type="checkbox" className="checkbox checkbox-xs checkbox-primary mt-1" defaultChecked />
-                                                <span className="text-xs">{renderTextWithBold(ing)}</span>
+                                                <span className="text-xs capitalize">{renderTextWithBold(ing)}</span>
                                             </li>
                                         ))}
                                     </ul>
@@ -393,7 +393,7 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                             <div className="flex-1">
                                 <div className="flex justify-between items-start">
                                     <div>
-                                        <h2 className="text-3xl font-black mb-1">{selectedRecipe.name}</h2>
+                                        <h2 className="text-3xl font-black mb-1 capitalize">{selectedRecipe.name}</h2>
                                         <p className="opacity-60 text-sm">{selectedRecipe.description}</p>
                                     </div>
                                     <div className="badge badge-primary">{selectedRecipe.difficulty}</div>
@@ -542,7 +542,7 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                                                         ))}
                                                     </div>
                                                     <div className="flex-1 text-left">
-                                                        <h4 className="font-bold text-base leading-tight">Your {expiringItems[0].name} {expiringItems.length > 1 ? `and ${expiringItems.length - 1} other items` : ''} should be used soon.</h4>
+                                                        <h4 className="font-bold text-base leading-tight">Your <span className="capitalize">{expiringItems[0].name}</span> {expiringItems.length > 1 ? `and ${expiringItems.length - 1} other items` : ''} should be used soon.</h4>
                                                         <p className="text-xs opacity-60">Minimize waste with a custom recipe.</p>
                                                     </div>
                                                     <button
@@ -573,7 +573,7 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                                                     />
                                                 </figure>
                                                 <div className="p-4">
-                                                    <h3 className="font-bold text-base mb-1 truncate">{recipe.name}</h3>
+                                                    <h3 className="font-bold text-base mb-1 truncate capitalize">{recipe.name}</h3>
                                                     <p className="text-xs opacity-60 line-clamp-2 mb-3 h-8">{recipe.description}</p>
                                                     <div className="flex justify-between items-center">
                                                         <span className="text-[10px] font-bold opacity-30 uppercase tracking-widest">{recipe.cookTime} • {recipe.difficulty}</span>
@@ -628,7 +628,7 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                                                     </button>
                                                 </figure>
                                                 <div className="p-4">
-                                                    <h3 className="font-bold text-base mb-1 truncate">{recipe.name}</h3>
+                                                    <h3 className="font-bold text-base mb-1 truncate capitalize">{recipe.name}</h3>
                                                     <p className="text-xs opacity-60 line-clamp-2 mb-3 h-8">{recipe.description}</p>
                                                     <div className="flex justify-between items-center">
                                                         <span className="text-[10px] font-bold opacity-30 uppercase tracking-widest">{recipe.cookTime} • {recipe.difficulty}</span>

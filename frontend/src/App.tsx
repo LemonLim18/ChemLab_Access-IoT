@@ -22,7 +22,8 @@ import {
 } from '../services/geminiService';
 
 
-const TABS = ['dashboard', 'search', 'inventory', 'recipes', 'shop', 'settings', 'lab'];
+// const TABS = ['dashboard', 'search', 'inventory', 'recipes', 'shop', 'settings', 'lab'];
+const TABS = ['dashboard', 'search', 'inventory', 'recipes', 'shop', 'settings'];
 
 const LAB_PROJECTS = [
   {
@@ -48,7 +49,9 @@ const LAB_PROJECTS = [
 ];
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('smart_fridge_active_tab') || 'dashboard';
+  });
   const [inventory, setInventory] = useState<FridgeItem[]>(INITIAL_INVENTORY);
   const [sensors, setSensors] = useState<SensorData>(INITIAL_SENSORS);
   const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
@@ -75,9 +78,17 @@ const App: React.FC = () => {
   const [anomalyStartTimes, setAnomalyStartTimes] = useState<Record<string, string>>({});
 
   // Store Finder State
-  const [storeSearchQuery, setStoreSearchQuery] = useState('');
-  const [nearestStores, setNearestStores] = useState<StoreResult[]>([]);
-  const [cheapestStores, setCheapestStores] = useState<StoreResult[]>([]);
+  const [storeSearchQuery, setStoreSearchQuery] = useState(() => {
+    return localStorage.getItem('smart_fridge_store_query') || '';
+  });
+  const [nearestStores, setNearestStores] = useState<StoreResult[]>(() => {
+    const saved = localStorage.getItem('smart_fridge_nearest_stores');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [cheapestStores, setCheapestStores] = useState<StoreResult[]>(() => {
+    const saved = localStorage.getItem('smart_fridge_cheapest_stores');
+    return saved ? JSON.parse(saved) : [];
+  });
   // Used in handleStoreSearch commented-out code
   void setNearestStores;
   void setCheapestStores;
@@ -163,6 +174,12 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('smart_fridge_search_cache', JSON.stringify(searchCache));
   }, [searchCache]);
+
+  useEffect(() => {
+    localStorage.setItem('smart_fridge_store_query', storeSearchQuery);
+    localStorage.setItem('smart_fridge_nearest_stores', JSON.stringify(nearestStores));
+    localStorage.setItem('smart_fridge_cheapest_stores', JSON.stringify(cheapestStores));
+  }, [storeSearchQuery, nearestStores, cheapestStores]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -381,7 +398,8 @@ const App: React.FC = () => {
           console.log('[WebSocket] Preparing seamless persisted snapshot:', newData.latest_image_url);
           setPendingSnapshot(getFreshUrl(newData.latest_image_url));
           setLastSnapshotTime(newData.lastCaptureTime);
-          setIsCapturing(false); // Image received, stop capturing status
+          setIsRefreshingSnapshot(true); // Ensure loader shows during swap
+          setIsCapturing(false);
         }
 
         // Initial load hydration: if message contains inventory, use it
@@ -391,6 +409,11 @@ const App: React.FC = () => {
 
         if (newData.shopping_list && Array.isArray(newData.shopping_list)) {
           setBuyList(newData.shopping_list);
+        }
+
+        // Sync analysis status from backend
+        if (typeof newData.isAnalyzing === 'boolean') {
+          setIsAnalyzing(newData.isAnalyzing);
         }
 
         // Advanced Anomaly Detection
@@ -540,12 +563,14 @@ const App: React.FC = () => {
           console.log('[WebSocket] Preparing seamless real-time capture:', message.data.image_url);
           setPendingSnapshot(getFreshUrl(message.data.image_url));
           if (message.data.timestamp) setLastSnapshotTime(message.data.timestamp);
-          setIsCapturing(false); // Image received, stop capturing status
+          setIsRefreshingSnapshot(true); // Keep loader active during image download
+          setIsAnalyzing(true); // AI analysis starts immediately after capture
+          setIsCapturing(false);
         }
         setNotifications(prev => [{
           id: Date.now().toString(),
           title: 'New Snapshot',
-          message: 'Fridge camera captured a new image.',
+          message: 'Fridge camera captured a new image. Analyzing contents...',
           type: 'info',
           timestamp: new Date().toISOString(),
           isRead: false
@@ -554,6 +579,7 @@ const App: React.FC = () => {
         const enrichedItems = message.data.items;
         console.log('[WebSocket] Inventory update received:', enrichedItems);
         setInventory(enrichedItems);
+        setIsAnalyzing(false); // AI analysis complete
         setNotifications(prev => [{
           id: Date.now().toString(),
           title: 'Stock Updated',
@@ -562,6 +588,21 @@ const App: React.FC = () => {
           timestamp: new Date().toISOString(),
           isRead: false
         }, ...prev]);
+      } else if (message.type === 'analysis_status') {
+        const { status } = message.data;
+        if (status === 'started') {
+          console.log('[AI] Content analysis started...');
+          setIsAnalyzing(true);
+        } else if (status === 'failed') {
+          console.error('[AI] Content analysis failed.');
+          setIsAnalyzing(false);
+          setIsRefreshingSnapshot(false);
+          addToast({
+            title: "Scan Failed",
+            message: "AI was unable to process the snapshot. Please try again.",
+            type: "error"
+          });
+        }
       }
     };
 
@@ -603,7 +644,10 @@ const App: React.FC = () => {
 
             // Trigger search with the urgent item
             const results = await searchStores(mostUrgent.name, userLocation.lat, userLocation.lng);
-            const filtered = results.filter((s: any) => !s.premise.toLowerCase().includes('99 speedmart 2403'));
+            const filtered = results.filter((s: any) =>
+              !s.premise.toLowerCase().includes('99 speedmart 2403') &&
+              !s.premise.toLowerCase().includes('pasar awam chai leng park')
+            );
             setNearestStores(filtered.slice(0, 5));
             setCheapestStores([...filtered].sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
           }
@@ -702,6 +746,7 @@ const App: React.FC = () => {
 
   const handleTabChange = (tab: string, skipLocationPrompt: boolean = false) => {
     setActiveTab(tab);
+    localStorage.setItem('smart_fridge_active_tab', tab);
     // if ((tab === 'shop' || tab === 'search') && !userLocation) {
     if (tab === 'search' && !userLocation && !skipLocationPrompt) {
       promptForLocation();
@@ -725,7 +770,10 @@ const App: React.FC = () => {
       if (locMatch) {
         console.log(`[Search] Cache hit for "${query}"`);
         const results = cached.results;
-        const filtered = results.filter((s: any) => !s.premise.toLowerCase().includes('99 speedmart 2403'));
+        const filtered = results.filter((s: any) =>
+          !s.premise.toLowerCase().includes('99 speedmart 2403') &&
+          !s.premise.toLowerCase().includes('pasar awam chai leng park')
+        );
         setNearestStores(filtered.slice(0, 5));
         setCheapestStores([...filtered].sort((a, b) => a.min_price - b.min_price).slice(0, 5));
         setIsSearchingStores(false); // Ensure loader is hidden
@@ -745,7 +793,10 @@ const App: React.FC = () => {
         userLocation?.lng
       );
 
-      const filtered = results.filter((s: any) => !s.premise.toLowerCase().includes('99 speedmart 2403'));
+      const filtered = results.filter((s: any) =>
+        !s.premise.toLowerCase().includes('99 speedmart 2403') &&
+        !s.premise.toLowerCase().includes('pasar awam chai leng park')
+      );
       setNearestStores(filtered.slice(0, 5));
       setCheapestStores(filtered.sort((a: any, b: any) => a.min_price - b.min_price).slice(0, 5));
 
@@ -1057,6 +1108,16 @@ const App: React.FC = () => {
         onToggleTheme={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
       />
 
+      {/* Non-blocking AI Analysis Pill */}
+      {isAnalyzing && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[55] animate-in slide-in-from-top-4 duration-500">
+          <div className="bg-primary/90 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl border border-white/20 flex items-center gap-2">
+            <span className="loading loading-spinner loading-xs text-white"></span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-white">AI Analyzing Contents...</span>
+          </div>
+        </div>
+      )}
+
       {/* Persistent Toasts (Fade In/Out) */}
       <div className="fixed bottom-24 left-0 right-0 z-[60] flex flex-col items-center gap-2 pointer-events-none">
         {toasts.map(toast => (
@@ -1127,7 +1188,7 @@ const App: React.FC = () => {
                           {getCategoryIcon(item.category)}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-bold text-sm truncate">{item.name}</h3>
+                          <h3 className="font-bold text-sm truncate capitalize">{item.name}</h3>
                           <span className="text-[10px] text-error font-bold uppercase">{item.quantity} units left</span>
                         </div>
                         <button
@@ -1313,7 +1374,7 @@ const App: React.FC = () => {
                           handleStoreSearch(item.name);
                         }}
                       >
-                        {item.name}
+                        <p className="capitalize">{item.name}</p>
                       </button>
                     ))}
                   </div>
@@ -1466,14 +1527,14 @@ const App: React.FC = () => {
                   <button
                     className={`btn btn-sm btn-primary ${isRefreshingSnapshot ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onClick={handleRefreshSnapshot}
-                    disabled={isRefreshingSnapshot} // This provides the "gray out" effect and prevents clicks
+                    disabled={isRefreshingSnapshot} // Re-enabled even if isAnalyzing is true
                   >
                     {isRefreshingSnapshot ? (
                       <span className="loading loading-spinner loading-xs"></span>
                     ) : (
                       <RefreshCw size={16} />
                     )}
-                    <span className={isRefreshingSnapshot ? 'opacity-70' : ''}>Refresh View</span>
+                    <span>{isRefreshingSnapshot ? 'Capturing...' : 'Refresh View'}</span>
                   </button>
                   {/* <button className="btn btn-sm btn-primary" onClick={() => setIsCameraOpen(true)}>
                     <Camera size={16} /> Scan
@@ -1545,7 +1606,13 @@ const App: React.FC = () => {
                   {inventory.map(item => (
                     <SlotCard key={item.id} item={item} onEdit={editItem} onRemove={removeItem} />
                   ))}
-                  {inventory.length === 0 && (
+                  {isAnalyzing && (
+                    <div className="flex flex-col items-center justify-center p-8 gap-3 animate-pulse">
+                      <span className="loading loading-dots loading-md text-primary"></span>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary/60 text-center">AI is scanning updated inventory...</p>
+                    </div>
+                  )}
+                  {inventory.length === 0 && !isAnalyzing && (
                     <div className="p-12 text-center opacity-30">
                       <Package size={48} className="mx-auto mb-2" />
                       <p>Fridge is empty.</p>
@@ -1612,7 +1679,7 @@ const App: React.FC = () => {
                             {item.completed ? <Check size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-base-content/10"></div>}
                           </button>
                           <div>
-                            <p className={`font-bold text-base tracking-tight ${item.completed ? 'line-through opacity-40' : 'text-base-content/90'}`}>
+                            <p className={`font-bold text-base tracking-tight capitalize ${item.completed ? 'line-through opacity-40' : 'text-base-content/90'}`}>
                               {item.name}
                             </p>
                             <div className="flex gap-2 items-center mt-1">
@@ -1777,13 +1844,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Loading Overlays */}
-      {isAnalyzing && (
-        <div className="fixed inset-0 z-100 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center text-white p-6 text-center">
-          <span className="loading loading-infinity loading-lg text-primary scale-150"></span>
-          <p className="font-black text-2xl mt-4 tracking-tighter uppercase">AI Scanning Inventory</p>
-        </div>
-      )}
+      {/* Loading Overlays removed for non-blocking experience */}
 
 
 
@@ -1819,10 +1880,11 @@ const App: React.FC = () => {
           <User size={20} />
           <span className="dock-label text-[9px] uppercase font-black">Me</span>
         </button>
-        <button className={activeTab === 'lab' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('lab')}>
+        {/* Hide the Lab Button */}
+        {/* <button className={activeTab === 'lab' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('lab')}>
           <Beaker size={20} />
           <span className="dock-label text-[9px] uppercase font-black">Lab</span>
-        </button>
+        </button> */}
       </div>
 
       {/* STORE DETAILS MODAL */}
@@ -1938,7 +2000,7 @@ const App: React.FC = () => {
                           <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-primary/10 text-primary uppercase">{item.item_category}</span>
                           <span className="text-[10px] opacity-40 font-bold">#{item.item_code}</span>
                         </div>
-                        <h4 className="font-bold text-sm leading-tight text-base-content/80">{item.item}</h4>
+                        <h4 className="font-bold text-sm leading-tight text-base-content/80 capitalize">{item.item}</h4>
                         <div className="flex gap-3 mt-1.5 opacity-50 text-[10px] font-bold">
                           <span>{item.unit}</span>
                           <span>•</span>

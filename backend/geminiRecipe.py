@@ -92,27 +92,28 @@ def get_recipe_details(recipe_name: str, items: List[Dict[str, Any]]) -> Dict[st
     return result if result is not None else {"fullIngredients": [], "instructions": []}
 
 def analyze_snapshot(image_base64: str) -> Dict[str, Any]:
-    # Analyze this image and provide a detailed list of item categories and their counts.
-    allowed_items = ", ".join(EN_MS_MAP.keys())
+    reference_names = ", ".join(EN_MS_MAP.keys())
     prompt = f"""
-        Analyze this fridge snapshot. Identify all identified food items.
+        Analyze this fridge snapshot and identify all food items.
         
-        CRITICAL: Use "Natural Human Naming". This means:
-        - Use generic but descriptive terms that a normal human would use (e.g., "Orange Juice", "Milk", "Yogurt", "Cheese", "Soda", "Apple", "Alcohol").
-        - Avoid over-generalizing: Do NOT map "Orange Juice" to just "Orange". If it's a distinct product, use the common name for it.
-        - Avoid over-specifying: Do NOT include brand names or packaging details (e.g., use "Yogurt", not "Yogurt with red cap").
+        REFERENCE NAMES (Prioritize these EXACT names if applicable):
+        {reference_names}
         
-        CRITICAL RULES:
-        1. DO NOT mention any color of the items (e.g., no "Red Apple", no "Green Grapes", no "White Milk"). Use ONLY the common name.
-        2. DO NOT use "percent" or "count" for the unit field. You MUST use "unit" for ALL items (e.g., 1 unit, 2 unit).
+        CRITICAL NAMING RULES:
+        1. If an item matches one of the REFERENCE NAMES or is very similar, you MUST use that exact name.
+        2. If NO reference name is close, use "Natural Human Naming": generic, descriptive terms like "Orange Juice", "Yogurt", "Cheese".
+        3. DO NOT include color in the name (e.g., use "Apple", not "Red Apple").
+        4. DO NOT include brand names or packaging details.
         
-        The goal is for someone who hasn't seen the fridge to be able to clearly imagine the items in their mind.
+        FORMATTING RULES:
+        1. For the 'unit' field, you MUST use "unit" for ALL items (e.g., 1 unit, 2 unit). DO NOT use counts or percentages.
+        2. categories MUST be one of: 'Fruits', 'Vegetables', 'Dairy', 'Meat', 'Beverages', 'Sauces', 'Leftovers', 'Other'
         
         For each item, provide:
-        - name: The natural, generic human name (MUST NOT contain color).
-        - category: Exactly one of: 'Fruits', 'Vegetables', 'Dairy', 'Meat', 'Beverages', 'Sauces', 'Leftovers', 'Other'
+        - name: The prioritized name from the dictionary or a natural human name.
+        - category: One of the allowed categories.
         - quantity: A number representing the count/amount (e.g. 1, 2, 0.5)
-        - status: Exactly one of: 'Good', 'Near Expiry', 'Expired', 'Spoiled'
+        - status: One of: 'Good', 'Near Expiry', 'Expired', 'Spoiled'
         
         Format: Return as a JSON object with a single key "items" containing an array of these objects.
     """

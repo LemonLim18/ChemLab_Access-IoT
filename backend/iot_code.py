@@ -20,41 +20,42 @@ import mimetypes
 import paho.mqtt.client as mqtt
 
 # SUPABASE CONFIG
-SUPABASE_URL = "https://likyygzbjgrzsdyzsira.supabase.co/"
-SUPABASE_KEY = "sb_publishable_jU2_op2cAI7Fhbw9ygEt4g_hl-suGcf"
-SUPABASE_BUCKET = "camera_images"
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://likyygzbjgrzsdyzsira.supabase.co/")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_jU2_op2cAI7Fhbw9ygEt4g_hl-suGcf")
+SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "camera_images")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 print("Successfully connected to Supabase!")
 
 # ---------- CONFIG ----------
-# GCP
-DEVICE_ID = "fridge-01"
-MQTT_BROKER = "104.198.67.66"
-MQTT_PORT = 1883
-MQTT_USER = "smartfridge"
-MQTT_PASS = "password"
-MQTT_BASE = f"fridge"
+# GCP / MQTT
+DEVICE_ID = os.getenv("DEVICE_ID", "fridge-01")
+MQTT_BROKER = os.getenv("MQTT_BROKER", "104.198.67.66")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_USER = os.getenv("MQTT_USER", "smartfridge")
+MQTT_PASS = os.getenv("MQTT_PASS", "password")
+MQTT_BASE = os.getenv("MQTT_BASE", "fridge")
+
 TELEMETRY_TOPIC = MQTT_BASE + "/telemetry"
 DOOR_TOPIC = MQTT_BASE + "/door"
 CAPTURE_TOPIC = MQTT_BASE + "/capture"
 STATUS_TOPIC = MQTT_BASE + "/status"
 COMMAND_TOPIC = MQTT_BASE + "/command"
 
-LOCAL_IMAGE_DIR = "/home/lemon/IoT_Camera/snapshot"
+LOCAL_IMAGE_DIR = os.getenv("LOCAL_IMAGE_DIR", "/tmp/fridge_snapshots")
 os.makedirs(LOCAL_IMAGE_DIR, exist_ok=True)
 
 # GPIO pins
-IR_PIN = 24
-LED_PIN = 18            # Physical Pin 12
-LED_DURATION = 10       # Seconds to stay on for capture
+IR_PIN = int(os.getenv("IR_PIN", 24))
+LED_PIN = int(os.getenv("LED_PIN", 18))            # Physical Pin 12
+LED_DURATION = int(os.getenv("LED_DURATION", 10))  # Seconds to stay on for capture
 
 # CircuitPython style
 sensor = adafruit_dht.DHT11(board.D4)
 
 # sensor timings
-DHT_INTERVAL = 4.0      # seconds
-TELEMETRY_INTERVAL = 30  # seconds
-IR_DEBOUNCE = 0.3       # seconds
+DHT_INTERVAL = float(os.getenv("DHT_INTERVAL", 4.0))
+TELEMETRY_INTERVAL = float(os.getenv("TELEMETRY_INTERVAL", 30))
+IR_DEBOUNCE = float(os.getenv("IR_DEBOUNCE", 0.3))
 
 # thread pool
 executor = ThreadPoolExecutor(max_workers=2)
@@ -160,6 +161,7 @@ def upload_image_to_supabase(local_path: str) -> str | None:
             )
         url_data = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(remote_path)
         image_url = url_data if isinstance(url_data, str) else url_data.get("publicUrl")
+        print("Upload Successfully")
         return image_url
     except Exception as e:
         print(f"[Supabase Upload Error] {e}")
