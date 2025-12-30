@@ -162,6 +162,7 @@ def get_shopping_list() -> List[Dict[str, Any]]:
                 "id": row["id"],
                 "name": row["name"],
                 "source": row["source"],
+                "quantity": row.get("quantity", 1),
                 "completed": bool(row.get("completed")) # Treat any timestamp as True, null as False
             })
         return items
@@ -197,6 +198,7 @@ def save_shopping_item(item: Dict[str, Any]):
             "device_id": DEVICE_ID,
             "name": item_name,
             "source": item.get("source", "manual"),
+            "quantity": item.get("quantity", 1),
             "completed": datetime.now().isoformat() if item.get("completed") else None
         }
         

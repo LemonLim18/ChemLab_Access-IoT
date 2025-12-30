@@ -47,11 +47,11 @@ const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <div className="navbar bg-base-100 shadow-md sticky top-0 z-50 px-4">
+    <div className="navbar bg-base-100 shadow-md sticky top-0 z-50 px-6 py-5">
       <div className="flex-1">
-        <a className="text-xl font-bold flex items-center gap-2 cursor-pointer">
+        <a className="text-2xl font-bold flex items-center gap-2 cursor-pointer">
           <span className="text-primary">❄️</span>
-          <span className="hidden sm:inline">SmartFridge AI</span>
+          <span className="inline">SmartFridge AI</span>
         </a>
       </div>
       <div className="flex-none flex items-center gap-1 sm:gap-2">

@@ -674,7 +674,7 @@ def get_store_thumbnail(name: str, p_type: str = "", lat: Optional[float] = None
             "https://resize.indiatvnews.com/en/resize/newbucket/715_-/2016/08/canteen-1471425818.jpg",
             "https://media.timeout.com/images/103461683/1372/1029/image.jpg",
             "https://lh5.googleusercontent.com/p/AF1QipM6bjLMQDh2vEGHPwjkCMrZ2BO5djT6TWH3Mtlw=w1080-k-no",
-            "https://live.staticflickr.com/65535/49127334338_a423116b12_b.jpg",
+            "https://i.pinimg.com/originals/a2/03/94/a20394189c375abd42159ec3173cf7c6.png",
         ],
     }
     

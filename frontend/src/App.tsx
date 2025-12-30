@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Swal from 'sweetalert2';
-import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Map, Package, Activity, MapPin, DollarSign, User, LogOut, Send, Clock, Trash2, ListFilter, RefreshCw, Check, List, ChevronRight, Bell, X, Beaker } from 'lucide-react';
+import { LayoutDashboard, Search, ShoppingCart, ExternalLink, ChefHat, Plus, Map, Package, Activity, MapPin, DollarSign, User, LogOut, Send, Clock, Trash2, ListFilter, RefreshCw, Check, List, ChevronRight, Bell, X, Beaker, Edit } from 'lucide-react';
 import HoverPreviewModal from '../components/HoverPreviewModal';
 import FloatingSensorModal from '../components/FloatingSensorModal';
 
@@ -136,11 +136,34 @@ const App: React.FC = () => {
   };
 
   const addToast = (toast: any) => {
-    const id = Math.random().toString(36).substring(7);
-    setToasts(prev => [...prev, { ...toast, id }]);
+    const id = Date.now().toString();
+    const type = toast.alert_category || toast.type || 'info';
+
+    // Sync with notifications list
+    setNotifications(prev => [{
+      id: `toast-${id}`,
+      title: toast.title,
+      message: toast.message,
+      type: type,
+      timestamp: new Date().toISOString(),
+      isRead: false
+    }, ...prev]);
+
+    setToasts(prev => {
+      const newToasts = [...prev, { ...toast, id, alert_category: type }];
+      if (newToasts.length > 2) {
+        return newToasts.slice(-2);
+      }
+      return newToasts;
+    });
+
     setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
+      removeToast(id);
     }, 5000);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
   };
 
   const syncUserConfig = useCallback(async (name: string, email: string, enabled: boolean) => {
@@ -1004,15 +1027,39 @@ const App: React.FC = () => {
   };
 
   const addToBuyList = async (name: string, source: 'low-stock' | 'manual' = 'manual') => {
-    if (!name.trim()) return;
+    if (!name.trim()) return null;
+
+    // 1. Check for existing item with same name
+    const existingIndex = buyList.findIndex(i => i.name.toLowerCase() === name.toLowerCase());
+
+    if (existingIndex !== -1) {
+      // Increment existing
+      const existingItem = buyList[existingIndex];
+      const updatedItem = { ...existingItem, quantity: (existingItem.quantity || 1) + 1 };
+
+      setBuyList(prev => prev.map((item, idx) => idx === existingIndex ? updatedItem : item));
+
+      try {
+        await fetch(`http://${window.location.hostname}:8000/api/shopping-list`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedItem)
+        });
+      } catch (error) {
+        console.error('[API] Error updating buy item quantity:', error);
+      }
+      return updatedItem;
+    }
+
+    // 2. Add new item
     const newItem: BuyItem = {
       id: Math.random().toString(36).substr(2, 9),
       name,
       source,
+      quantity: 1,
       completed: false
     };
 
-    // Optimistic update
     setBuyList(prev => [...prev, newItem]);
     if (source === 'manual') setManualBuyInput('');
 
@@ -1025,13 +1072,76 @@ const App: React.FC = () => {
 
       const result = await response.json();
       if (result.status === 'success' && result.data && result.data.id) {
-        // Replace temp ID with real DB ID
         setBuyList(prev => prev.map(i => String(i.id) === String(newItem.id) ? { ...i, id: result.data.id } : i));
-      } else {
-        console.warn('[API] Failed to get real ID for new item:', result);
       }
     } catch (error) {
       console.error('[API] Error adding to buy list:', error);
+    }
+    return newItem;
+  };
+
+  const updateBuyItemQuantity = async (id: string | number, newQuantity: number) => {
+    if (newQuantity < 1) return;
+
+    const item = buyList.find(i => String(i.id) === String(id));
+    if (!item) return;
+
+    const updatedItem = { ...item, quantity: newQuantity };
+    setBuyList(prev => prev.map(i => String(i.id) === String(id) ? updatedItem : i));
+
+    try {
+      await fetch(`http://${window.location.hostname}:8000/api/shopping-list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedItem)
+      });
+    } catch (error) {
+      console.error('[API] Error updating buy item quantity:', error);
+    }
+  };
+
+  const editBuyItem = async (item: BuyItem) => {
+    const { value: newQuantity } = await Swal.fire({
+      title: 'Edit Quantity',
+      width: '450px',
+      html: `
+        <div class="flex flex-col gap-6 p-4 w-full">
+          <div class="flex flex-col items-center gap-2">
+            <span class="text-5xl font-black text-primary" id="qty-display">${item.quantity || 1}</span>
+            <span class="text-[10px] font-black uppercase tracking-widest opacity-40">Units Desired</span>
+          </div>
+          <input 
+            type="range" 
+            id="qty-slider" 
+            min="1" 
+            max="20" 
+            step="1" 
+            value="${item.quantity || 1}" 
+            class="range range-primary range-lg w-full"
+            oninput="document.getElementById('qty-display').innerText = this.value"
+          >
+          <div class="flex justify-between w-full px-2 text-xs opacity-40 font-bold">
+            <span>1</span>
+            <span>10</span>
+            <span>20</span>
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Update Quantity',
+      customClass: {
+        popup: 'rounded-3xl p-8 border border-base-content/10 shadow-3xl bg-base-100',
+        confirmButton: 'btn btn-primary px-10 rounded-2xl mr-2 shadow-lg shadow-primary/20',
+        cancelButton: 'btn btn-ghost px-8 rounded-2xl'
+      },
+      buttonsStyling: false,
+      preConfirm: () => {
+        return parseInt((document.getElementById('qty-slider') as HTMLInputElement).value);
+      }
+    });
+
+    if (newQuantity) {
+      updateBuyItemQuantity(item.id, newQuantity);
     }
   };
 
@@ -1118,17 +1228,26 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Persistent Toasts (Fade In/Out) */}
-      <div className="fixed bottom-24 left-0 right-0 z-[60] flex flex-col items-center gap-2 pointer-events-none">
+      {/* Top-Pinned Toasts (Overlay Location Banner area) */}
+      <div className="fixed top-24 left-0 right-0 z-[70] flex flex-col items-center gap-3 pointer-events-none">
         {toasts.map(toast => (
-          <div key={toast.id} className={`alert ${toast.alert_category === 'error' ? 'alert-error' :
-            toast.alert_category === 'warning' ? 'alert-warning' :
-              toast.alert_category === 'success' ? 'alert-success' : 'alert-info'
-            } shadow-lg w-[90%] max-w-md animate-in fade-in slide-in-from-bottom-5 duration-500 rounded-2xl border-none text-white pointer-events-auto`}>
-            <div>
-              <h3 className="font-bold text-xs uppercase tracking-widest opacity-80">{toast.title}</h3>
-              <p className="text-sm font-medium">{toast.message}</p>
+          <div
+            key={toast.id}
+            className={`alert ${toast.alert_category === 'error' ? 'alert-error' :
+              toast.alert_category === 'warning' ? 'alert-warning' :
+                toast.alert_category === 'success' ? 'alert-success' : 'alert-info'
+              } shadow-2xl w-[92%] max-w-md animate-in fade-in slide-in-from-top-6 duration-500 rounded-2xl border border-white/10 text-white pointer-events-auto flex items-center justify-between p-4 group`}
+          >
+            <div className="flex-1">
+              <h3 className="font-black text-[10px] uppercase tracking-widest opacity-70 mb-0.5">{toast.title}</h3>
+              <p className="text-xs font-bold leading-snug">{toast.message}</p>
             </div>
+            <button
+              onClick={() => removeToast(toast.id)}
+              className="btn btn-ghost btn-circle btn-xs opacity-40 group-hover:opacity-100 transition-opacity"
+            >
+              <X size={14} />
+            </button>
           </div>
         ))}
       </div>
@@ -1193,12 +1312,31 @@ const App: React.FC = () => {
                         </div>
                         <button
                           className="btn btn-sm btn-primary gap-1"
-                          onClick={() => {
-                            addToBuyList(item.name, 'low-stock');
-                            handleTabChange('shop'); // Standardized navigation
+                          onClick={async () => {
+                            const updatedItem = await addToBuyList(item.name, 'low-stock');
+                            Swal.fire({
+                              title: 'Added to List',
+                              html: `<strong>${item.name.charAt(0).toUpperCase() + item.name.slice(1)}</strong> ${updatedItem && updatedItem.quantity > 1 ? `<span class="badge badge-primary ml-1">x${updatedItem.quantity}</span>` : ''} successfully added to your To-Buy List.`,
+                              icon: 'success',
+                              timer: 2000,
+                              timerProgressBar: true,
+                              showConfirmButton: false,
+                              background: theme === 'dark' ? '#1d232a' : '#fff',
+                              color: theme === 'dark' ? '#fff' : '#000',
+                              padding: '1.5rem',
+                              customClass: {
+                                popup: 'rounded-3xl border border-base-content/10 shadow-2xl'
+                              },
+                              didOpen: () => {
+                                const progressBar = Swal.getTimerProgressBar();
+                                if (progressBar) {
+                                  progressBar.style.backgroundColor = '#00d390';
+                                }
+                              }
+                            });
                           }}
                         >
-                          <ShoppingCart size={14} /> Check into To-buy
+                          <ShoppingCart size={14} /> Add to List
                         </button>
                       </div>
                     ))}
@@ -1589,10 +1727,10 @@ const App: React.FC = () => {
                     </div>
                   )}
                   <div className="absolute top-4 left-4">
-                    <div className="badge badge-neutral bg-black/50 backdrop-blur border-none flex gap-2 p-3">
+                    <div className="badge badge-neutral bg-black/50 backdrop-blur border-none flex gap-2 p-3 py-4">
                       <span className={`w-2 h-2 rounded-full ${sensors.doorOpen ? 'bg-error animate-pulse' : 'bg-success'}`}></span>
                       <div className="flex flex-col">
-                        <span className="text-[10px] font-bold uppercase tracking-widest leading-none">IoT Live Interior</span>
+                        <span className="text-[9px] font-bold uppercase tracking-widest leading-none">IoT Live Interior</span>
                         {(isCapturing || isRefreshingSnapshot) ? (
                           <span className="text-[8px] text-warning font-bold animate-pulse">Capturing image...</span>
                         ) : lastSnapshotTime ? (
@@ -1651,7 +1789,7 @@ const App: React.FC = () => {
               <div className="card bg-base-100 shadow-xl border border-base-200">
                 <div className="card-body p-6">
                   <h2 className="text-2xl font-black mb-4 flex items-center gap-2">
-                    <ShoppingCart className="text-primary" /> To-Purchase List
+                    <ShoppingCart className="text-primary" /> To-Buy List
                   </h2>
                   <div className="flex gap-2 mb-8 bg-base-200/50 p-2 rounded-2xl border border-base-content/5">
                     <div className="relative flex-1">
@@ -1672,65 +1810,65 @@ const App: React.FC = () => {
                     </button>
                   </div>
                   {buyList.length > 0 ? (
-                    buyList.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`group flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 hover:scale-[1.01] ${item.completed
-                          ? 'bg-base-200/40 border-transparent opacity-60 grayscale'
-                          : 'bg-base-100 border-base-content/5 shadow-sm hover:shadow-xl hover:border-primary/20'
-                          }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <button
-                            className={`btn btn-circle btn-sm shadow-sm transition-all ${item.completed
-                              ? 'btn-success text-white border-none'
-                              : 'btn-ghost border-base-content/10 bg-base-200/50 hover:bg-primary/10 hover:border-primary/30'
-                              }`}
-                            onClick={() => toggleBuyItem(item.id)}
-                          >
-                            {item.completed ? <Check size={16} /> : <div className="w-4 h-4 rounded-full border-2 border-base-content/10"></div>}
-                          </button>
-                          <div>
-                            <p className={`font-bold text-base tracking-tight capitalize ${item.completed ? 'line-through opacity-40' : 'text-base-content/90'}`}>
-                              {item.name}
-                            </p>
-                            <div className="flex gap-2 items-center mt-1">
-                              {item.source === 'low-stock' ? (
-                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-error/10 text-[10px] font-black text-error uppercase tracking-tighter border border-error/5">
-                                  <div className="w-1 h-1 rounded-full bg-error animate-pulse"></div>
-                                  Stock Alert
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-md bg-primary/10 text-[10px] font-black text-primary uppercase tracking-tighter border border-primary/5">
-                                  Manual Note
-                                </span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {buyList.map((item) => (
+                        <div
+                          key={item.id}
+                          className={`card py-2 px-1 rounded-2xl bg-base-100 border transition-all duration-300 group ${item.completed
+                            ? 'opacity-60 grayscale border-transparent bg-base-200/40'
+                            : 'border-base-content/5 shadow-sm hover:shadow-xl hover:border-primary/20'
+                            }`}
+                        >
+                          <div className="card-body p-4 flex-row items-center gap-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${item.completed ? 'bg-base-300 text-base-content/40' : 'bg-primary/10 text-primary'}`}>
+                              {getCategoryIcon(
+                                item.name.toLowerCase().includes('milk') ? 'Dairy' :
+                                  (item.name.toLowerCase().includes('fruit') || item.name.toLowerCase().includes('apple') || item.name.toLowerCase().includes('orange')) ? 'Fruits' :
+                                    (item.name.toLowerCase().includes('meat') || item.name.toLowerCase().includes('chicken') || item.name.toLowerCase().includes('beef')) ? 'Meat' :
+                                      (item.name.toLowerCase().includes('veg') || item.name.toLowerCase().includes('carrot')) ? 'Vegetables' :
+                                        (item.name.toLowerCase().includes('drink') || item.name.toLowerCase().includes('juice') || item.name.toLowerCase().includes('water') || item.name.toLowerCase().includes('beverage') || item.name.toLowerCase().includes('coke') || item.name.toLowerCase().includes('soda')) ? 'Beverages' : 'Others'
                               )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h3 className={`font-bold text-sm truncate capitalize ${item.completed ? 'line-through opacity-50' : ''}`}>
+                                  {item.name}
+                                </h3>
+                                {!item.completed && (
+                                  <span className="badge badge-primary badge-sm font-black">x{item.quantity || 1}</span>
+                                )}
+                              </div>
+                              <p className="flex text-[10.2px]  font-black capitalize tracking-widest opacity-60 pt-2">
+                                Category: {item.source === 'low-stock' ? 'Low Stock' : 'New Demand'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {!item.completed && (
+                                <div className="tooltip tooltip-left" data-tip="Edit Quantity">
+                                  <button className="btn btn-ghost btn-circle btn-sm" onClick={() => editBuyItem(item)}>
+                                    <Edit size={20} />
+                                  </button>
+                                </div>
+                              )}
+                              <div className="tooltip tooltip-left" data-tip={item.completed ? 'Unmark' : 'Mark as Buy'}>
+                                <button className={`btn btn-circle btn-sm text-success ${item.completed ? 'btn-success text-white' : 'btn-ghost'}`} onClick={() => toggleBuyItem(item.id)}>
+                                  <Check size={20} />
+                                </button>
+                              </div>
+                              <div className="tooltip tooltip-left" data-tip="Delete Item">
+                                <button className="btn btn-ghost btn-circle btn-sm text-error" onClick={() => removeBuyItem(item.id)}>
+                                  <Trash2 size={20} />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
-                        <div className="flex gap-2 shrink-0">
-                          <button
-                            className="btn btn-ghost btn-circle btn-sm text-primary/60 hover:text-primary hover:bg-primary/10 transition-all duration-200"
-                            title="Search deals for this item"
-                            onClick={() => handleQuickSearch(item.name)}
-                          >
-                            <Search size={18} />
-                          </button>
-                          <button
-                            className="btn btn-ghost btn-circle btn-sm text-error/60 hover:text-error hover:bg-error/10 transition-all duration-200"
-                            onClick={() => removeBuyItem(item.id)}
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   ) : (
-                    <div className="text-center py-20 bg-base-200/30 rounded-3xl border border-dashed border-base-content/10">
-                      <div className="bg-base-100 w-16 h-16 rounded-2xl shadow-xl flex items-center justify-center mx-auto mb-4 border border-base-content/5">
-                        <ShoppingCart className="text-primary opacity-40" size={32} />
-                      </div>
-                      <p className="font-bold text-base-content/30 italic">No reminders for your next grocery run.</p>
+                    <div className="p-12 text-center opacity-30 flex flex-col items-center gap-4">
+                      <ShoppingCart size={40} />
+                      <p className="text-sm font-medium">Your list is empty.</p>
                     </div>
                   )}
                 </div>
@@ -1886,7 +2024,7 @@ const App: React.FC = () => {
         </button>
         <button className={activeTab === 'shop' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('shop')}>
           <ShoppingCart size={20} />
-          <span className="dock-label text-[9px] uppercase font-black">Shop</span>
+          <span className="dock-label text-[9px] uppercase font-black">To-Buy List</span>
         </button>
         <button className={activeTab === 'settings' ? 'active text-primary font-bold' : 'opacity-40'} onClick={() => handleTabChange('settings')}>
           <User size={20} />
@@ -1900,174 +2038,176 @@ const App: React.FC = () => {
       </div>
 
       {/* STORE DETAILS MODAL */}
-      {activeStoreModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setActiveStoreModal(null)}></div>
-          <div className="bg-base-100 w-full max-w-2xl max-h-[85vh] rounded-[2rem] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 slide-in-from-bottom-8 duration-500 border border-base-content/10">
-            {/* Modal Header */}
-            {/* Map top */}
-            <div className="p-8 pb-4 mb-4 relative overflow-hidden shrink-0">
-              {/* Header Visual: Permanent Interior Image */}
-              <div className="absolute inset-0 z-0 bg-base-300">
-                {activeStoreModal.thumbnail_url ? (
-                  <div className="w-full h-full relative animate-in fade-in duration-300">
-                    <img
-                      src={activeStoreModal.thumbnail_url}
-                      alt={activeStoreModal.premise}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-base-100 via-base-100/40 to-transparent"></div>
-                  </div>
-                ) : (
-                  <div className="w-full h-full bg-primary/5 flex items-center justify-center">
-                    <Package size={48} className="opacity-10" />
-                  </div>
-                )}
-              </div>
-
-              <div className="absolute top-4 right-4 z-20">
-                <button className="btn btn-sm btn-circle bg-base-100/80 backdrop-blur border-none shadow-lg hover:bg-base-100" onClick={() => setActiveStoreModal(null)}>
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="relative z-10 flex flex-col md:flex-row justify-between items-start gap-4">
-                <div>
-                  <div className="badge badge-primary badge-sm font-black uppercase tracking-widest mb-2">{activeStoreModal.premise_type}</div>
-                  <h2 className="text-2xl font-black tracking-tight leading-tight">{activeStoreModal.premise}</h2>
-                  <p className="text-[11px] opacity-60 mt-1 flex items-center gap-1.5 font-medium italic">
-                    <MapPin size={10} /> {activeStoreModal.address}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 shrink-0">
-                  <div className="bg-base-200/50 p-3 rounded-2xl flex items-center gap-3 border border-base-content/5">
-                    <div className="text-right">
-                      <p className="text-[9px] font-black opacity-40 uppercase tracking-tighter">Proximity</p>
-                      <p className="text-sm font-black">{activeStoreModal.distance_km?.toFixed(1) || '?'} KM</p>
+      {
+        activeStoreModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setActiveStoreModal(null)}></div>
+            <div className="bg-base-100 w-full max-w-2xl max-h-[85vh] rounded-[2rem] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 slide-in-from-bottom-8 duration-500 border border-base-content/10">
+              {/* Modal Header */}
+              {/* Map top */}
+              <div className="p-8 pb-4 mb-4 relative overflow-hidden shrink-0">
+                {/* Header Visual: Permanent Interior Image */}
+                <div className="absolute inset-0 z-0 bg-base-300">
+                  {activeStoreModal.thumbnail_url ? (
+                    <div className="w-full h-full relative animate-in fade-in duration-300">
+                      <img
+                        src={activeStoreModal.thumbnail_url}
+                        alt={activeStoreModal.premise}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-base-100 via-base-100/40 to-transparent"></div>
                     </div>
-                    <div className="divider divider-horizontal m-0 opacity-10"></div>
-                    <a
-                      href={`https://www.google.com/maps/dir/?api=1&destination=${activeStoreModal.lat},${activeStoreModal.lon}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-circle btn-primary btn-sm shadow-lg shadow-primary/30"
-                    >
-                      <ExternalLink size={14} />
-                    </a>
+                  ) : (
+                    <div className="w-full h-full bg-primary/5 flex items-center justify-center">
+                      <Package size={48} className="opacity-10" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="absolute top-4 right-4 z-20">
+                  <button className="btn btn-sm btn-circle bg-base-100/80 backdrop-blur border-none shadow-lg hover:bg-base-100" onClick={() => setActiveStoreModal(null)}>
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start gap-4">
+                  <div>
+                    <div className="badge badge-primary badge-sm font-black uppercase tracking-widest mb-2">{activeStoreModal.premise_type}</div>
+                    <h2 className="text-2xl font-black tracking-tight leading-tight">{activeStoreModal.premise}</h2>
+                    <p className="text-[11px] opacity-60 mt-1 flex items-center gap-1.5 font-medium italic">
+                      <MapPin size={10} /> {activeStoreModal.address}
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <div className="bg-base-200/50 p-3 rounded-2xl flex items-center gap-3 border border-base-content/5">
+                      <div className="text-right">
+                        <p className="text-[9px] font-black opacity-40 uppercase tracking-tighter">Proximity</p>
+                        <p className="text-sm font-black">{activeStoreModal.distance_km?.toFixed(1) || '?'} KM</p>
+                      </div>
+                      <div className="divider divider-horizontal m-0 opacity-10"></div>
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${activeStoreModal.lat},${activeStoreModal.lon}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-circle btn-primary btn-sm shadow-lg shadow-primary/30"
+                      >
+                        <ExternalLink size={14} />
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Modal Body: Scrollable Content */}
-            <div className="flex-1 overflow-y-auto mt-2 px-8 pb-8 no-scrollbar">
-              {/* Integrated Mini Map */}
-              {/* Map Bottom */}
-              <div
-                className="top-0 bg-base-100 pt-2 pb-4 z-20 border-b border-base-content/5 mb-4 flex justify-between items-center cursor-pointer hover:bg-base-200/50 transition-colors px-2 -mx-2 rounded-xl"
-                onClick={() => setIsMapExpanded(!isMapExpanded)}
-              >
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
-                  <Map size={12} /> Map Location
-                </h3>
-                <div className={`transition-transform duration-300 text-base-content/20 ${isMapExpanded ? 'rotate-180' : ''}`}>
-                  <ChevronRight size={14} className="rotate-90" />
+              {/* Modal Body: Scrollable Content */}
+              <div className="flex-1 overflow-y-auto mt-2 px-8 pb-8 no-scrollbar">
+                {/* Integrated Mini Map */}
+                {/* Map Bottom */}
+                <div
+                  className="top-0 bg-base-100 pt-2 pb-4 z-20 border-b border-base-content/5 mb-4 flex justify-between items-center cursor-pointer hover:bg-base-200/50 transition-colors px-2 -mx-2 rounded-xl"
+                  onClick={() => setIsMapExpanded(!isMapExpanded)}
+                >
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
+                    <Map size={12} /> Map Location
+                  </h3>
+                  <div className={`transition-transform duration-300 text-base-content/20 ${isMapExpanded ? 'rotate-180' : ''}`}>
+                    <ChevronRight size={14} className="rotate-90" />
+                  </div>
                 </div>
-              </div>
 
-              <div className={`overflow-hidden transition-all duration-500 ease-in-out ${isMapExpanded ? 'max-h-[500px] mb-8 opacity-100 scale-100' : 'max-h-0 mb-0 opacity-0 scale-95'}`}>
-                <div className="h-64 rounded-xl overflow-hidden border border-base-content/10 relative group/map">
-                  <iframe
-                    width="100%"
-                    height="100%"
-                    frameBorder="0"
-                    style={{ border: 0 }}
-                    src={`https://maps.google.com/maps?q=${encodeURIComponent(activeStoreModal.premise + ' ' + activeStoreModal.address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
-                    allowFullScreen
-                    className="opacity-70 group-hover/map:opacity-100 transition-opacity w-full h-full"
-                  ></iframe>
-                  <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-black/5"></div>
+                <div className={`overflow-hidden transition-all duration-500 ease-in-out ${isMapExpanded ? 'max-h-[500px] mb-8 opacity-100 scale-100' : 'max-h-0 mb-0 opacity-0 scale-95'}`}>
+                  <div className="h-64 rounded-xl overflow-hidden border border-base-content/10 relative group/map">
+                    <iframe
+                      width="100%"
+                      height="100%"
+                      frameBorder="0"
+                      style={{ border: 0 }}
+                      src={`https://maps.google.com/maps?q=${encodeURIComponent(activeStoreModal.premise + ' ' + activeStoreModal.address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
+                      allowFullScreen
+                      className="opacity-70 group-hover/map:opacity-100 transition-opacity w-full h-full"
+                    ></iframe>
+                    <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-black/5"></div>
+                  </div>
                 </div>
-              </div>
 
-              {/* Product Alternatives Header */}
-              <div className="sticky top-0 bg-base-100 pt-1 pb-4 z-20 border-b border-base-content/5 mb-4">
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
-                  <List size={12} /> Product Alternatives ({activeStoreModal.items.length})
-                </h3>
-              </div>
+                {/* Product Alternatives Header */}
+                <div className="sticky top-0 bg-base-100 pt-1 pb-4 z-20 border-b border-base-content/5 mb-4">
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-base-content/40 flex items-center gap-2">
+                    <List size={12} /> Product Alternatives ({activeStoreModal.items.length})
+                  </h3>
+                </div>
 
-              <div className="grid gap-3">
-                {activeStoreModal.items.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className={`bg-base-200/40 rounded-2xl border border-base-content/5 transition-all overflow-hidden ${expandedHistoryItem === item.item_code ? 'ring-2 ring-primary/30 bg-base-100' : 'hover:border-primary/20'}`}
-                  >
+                <div className="grid gap-3">
+                  {activeStoreModal.items.map((item, idx) => (
                     <div
-                      className="p-4 cursor-pointer flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
-                      onClick={() => setExpandedHistoryItem(expandedHistoryItem === item.item_code ? null : item.item_code)}
+                      key={idx}
+                      className={`bg-base-200/40 rounded-2xl border border-base-content/5 transition-all overflow-hidden ${expandedHistoryItem === item.item_code ? 'ring-2 ring-primary/30 bg-base-100' : 'hover:border-primary/20'}`}
                     >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-primary/10 text-primary uppercase">{item.item_category}</span>
-                          <span className="text-[10px] opacity-40 font-bold">#{item.item_code}</span>
-                        </div>
-                        <h4 className="font-bold text-sm leading-tight text-base-content/80 capitalize">{item.item}</h4>
-                        <div className="flex gap-3 mt-1.5 opacity-50 text-[10px] font-bold">
-                          <span>{item.unit}</span>
-                          <span>•</span>
-                          <span className="italic">Latest Check: {new Date(item.date).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 w-full md:w-auto">
-                        <div className="text-lg font-black text-primary bg-primary/5 px-4 py-2 rounded-xl border border-primary/10 flex-1 md:flex-none text-center">
-                          RM {item.price.toFixed(2)}
-                        </div>
-                        <div className={`transition-transform duration-300 ${expandedHistoryItem === item.item_code ? 'rotate-180 text-primary' : 'opacity-20'}`}>
-                          <ChevronRight size={16} />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* PRICE HISTORY SECTION */}
-                    {expandedHistoryItem === item.item_code && (
-                      <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300">
-                        <div className="bg-base-300/30 rounded-xl p-4 border border-base-content/5">
-                          <h5 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3 flex items-center gap-1.5">
-                            <Clock size={10} /> Price Journey (History)
-                          </h5>
-                          <div className="space-y-2">
-                            {item.history.map((h, hIdx) => (
-                              <div key={hIdx} className="flex justify-between items-center text-xs">
-                                <span className="opacity-60 font-medium">{new Date(h.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                                <div className="flex items-center gap-2">
-                                  {hIdx < item.history.length - 1 && (
-                                    <span className={`text-[9px] font-bold ${h.price < item.history[hIdx + 1].price ? 'text-success' : h.price > item.history[hIdx + 1].price ? 'text-error' : 'opacity-20'}`}>
-                                      {h.price < item.history[hIdx + 1].price ? '↓' : h.price > item.history[hIdx + 1].price ? '↑' : '='}
-                                    </span>
-                                  )}
-                                  <span className="font-black">RM {h.price.toFixed(2)}</span>
-                                </div>
-                              </div>
-                            ))}
+                      <div
+                        className="p-4 cursor-pointer flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+                        onClick={() => setExpandedHistoryItem(expandedHistoryItem === item.item_code ? null : item.item_code)}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-primary/10 text-primary uppercase">{item.item_category}</span>
+                            <span className="text-[10px] opacity-40 font-bold">#{item.item_code}</span>
                           </div>
-                          <p className="text-[9px] text-center opacity-30 mt-4 font-bold italic">Prices tracked by government transparency initiatives.</p>
+                          <h4 className="font-bold text-sm leading-tight text-base-content/80 capitalize">{item.item}</h4>
+                          <div className="flex gap-3 mt-1.5 opacity-50 text-[10px] font-bold">
+                            <span>{item.unit}</span>
+                            <span>•</span>
+                            <span className="italic">Latest Check: {new Date(item.date).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 w-full md:w-auto">
+                          <div className="text-lg font-black text-primary bg-primary/5 px-4 py-2 rounded-xl border border-primary/10 flex-1 md:flex-none text-center">
+                            RM {item.price.toFixed(2)}
+                          </div>
+                          <div className={`transition-transform duration-300 ${expandedHistoryItem === item.item_code ? 'rotate-180 text-primary' : 'opacity-20'}`}>
+                            <ChevronRight size={16} />
+                          </div>
                         </div>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="p-6 bg-base-200/30 border-t border-base-content/5 flex justify-between items-center shrink-0">
-              <button className="btn btn-ghost btn-sm normal-case font-bold" onClick={() => setActiveStoreModal(null)}>Close</button>
-              <p className="text-[10px] opacity-40 font-bold">Price Catcher API Sync • {activeStoreModal.last_date}</p>
+                      {/* PRICE HISTORY SECTION */}
+                      {expandedHistoryItem === item.item_code && (
+                        <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300">
+                          <div className="bg-base-300/30 rounded-xl p-4 border border-base-content/5">
+                            <h5 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3 flex items-center gap-1.5">
+                              <Clock size={10} /> Price Journey (History)
+                            </h5>
+                            <div className="space-y-2">
+                              {item.history.map((h, hIdx) => (
+                                <div key={hIdx} className="flex justify-between items-center text-xs">
+                                  <span className="opacity-60 font-medium">{new Date(h.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                  <div className="flex items-center gap-2">
+                                    {hIdx < item.history.length - 1 && (
+                                      <span className={`text-[9px] font-bold ${h.price < item.history[hIdx + 1].price ? 'text-success' : h.price > item.history[hIdx + 1].price ? 'text-error' : 'opacity-20'}`}>
+                                        {h.price < item.history[hIdx + 1].price ? '↓' : h.price > item.history[hIdx + 1].price ? '↑' : '='}
+                                      </span>
+                                    )}
+                                    <span className="font-black">RM {h.price.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <p className="text-[9px] text-center opacity-30 mt-4 font-bold italic">Prices tracked by government transparency initiatives.</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-6 bg-base-200/30 border-t border-base-content/5 flex justify-between items-center shrink-0">
+                <button className="btn btn-ghost btn-sm normal-case font-bold" onClick={() => setActiveStoreModal(null)}>Close</button>
+                <p className="text-[10px] opacity-40 font-bold">Price Catcher API Sync • {activeStoreModal.last_date}</p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       <HoverPreviewModal modal={modal} items={LAB_PROJECTS} />
       <FloatingSensorModal modal={sensorModal} history={sensorHistory} theme={theme} />

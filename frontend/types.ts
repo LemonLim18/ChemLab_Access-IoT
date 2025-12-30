@@ -89,6 +89,7 @@ export interface StoreResult {
 export interface BuyItem {
   id: string | number;
   name: string;
-  source: 'low-stock' | 'manual';
+  source: 'low-stock' | 'manual'; 
+  quantity: number;
   completed: boolean;
 }
