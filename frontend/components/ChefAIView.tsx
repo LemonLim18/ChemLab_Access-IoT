@@ -13,8 +13,41 @@ interface ChefAIViewProps {
 }
 
 const RecipeImage: React.FC<{ src: string; alt: string; className?: string }> = ({ src, alt, className = "" }) => {
+    const [currentSrc, setCurrentSrc] = useState(src);
     const [isLoaded, setIsLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
+    const [fallbackStage, setFallbackStage] = useState(0); // 0: Direct Flux, 1: Authenticated Backend Flux
+
+    useEffect(() => {
+        setCurrentSrc(src);
+        setHasError(false);
+        setFallbackStage(0);
+        setIsLoaded(false);
+    }, [src]);
+
+    const handleError = async () => {
+        console.log(`[RecipeImage] Loading failed at stage ${fallbackStage} for ${alt}`);
+
+        if (fallbackStage === 0) {
+            // Stage 1: Try Authenticated Backend Proxy (Starts with Flux, then Turbo inside proxy)
+            // Backend uses its own Secret Key, so no PK needed here
+            setFallbackStage(1);
+            const seed = Math.floor(Math.random() * 1000000);
+            const proxyUrl = `${API_BASE_URL}/api/recipes/image-proxy?prompt=${encodeURIComponent(alt + ' professional food photography, gourmet plating')}&seed=${seed}&model=flux`;
+            setCurrentSrc(proxyUrl);
+        } else {
+            // If even authenticated proxy fails, show error
+            setHasError(true);
+        }
+    };
+
+    const getLoadingText = () => {
+        if (!src) return "";
+        if (fallbackStage === 1) return "Authenticated Generation (Flux/Turbo)";
+        return "Envisioning Dish (Flux)";
+    };
+
+    if (!src) return null;
 
     return (
         <div className={`relative overflow-hidden ${className}`}>
@@ -22,30 +55,30 @@ const RecipeImage: React.FC<{ src: string; alt: string; className?: string }> = 
                 <div className="absolute inset-0 bg-base-300 animate-pulse flex flex-col items-center justify-center gap-3">
                     <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
                     <div className="flex flex-col items-center gap-1">
-                        <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Envisioning Dish</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-40">
+                            {getLoadingText()}
+                        </span>
                         <div className="flex gap-1">
                             <span className="w-1 h-1 bg-primary rounded-full animate-bounce [animation-delay:-0.3s]"></span>
                             <span className="w-1 h-1 bg-primary rounded-full animate-bounce [animation-delay:-0.15s]"></span>
                             <span className="w-1 h-1 bg-primary rounded-full animate-bounce"></span>
                         </div>
                     </div>
-                    {/* Shimmer Overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_2s_infinite]"></div>
                 </div>
             )}
 
             <img
-                src={src}
+                src={currentSrc}
                 alt={alt}
-                className={`w-full h-full object-cover transition-opacity duration-700 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+                className={`w-full h-full object-cover transition-all duration-700 ${isLoaded ? 'opacity-100 scale-100' : 'opacity-0 scale-110'}`}
                 onLoad={() => setIsLoaded(true)}
-                onError={() => setHasError(true)}
+                onError={handleError}
             />
 
             {hasError && (
                 <div className="absolute inset-0 bg-base-200 flex flex-col items-center justify-center text-center p-4">
                     <ChefHat size={32} className="opacity-20 mb-2" />
-                    <span className="text-[10px] font-bold opacity-40 uppercase">Visual Unavailable</span>
+                    <span className="text-[10px] font-bold opacity-40 uppercase">Generation Failed</span>
                 </div>
             )}
         </div>
@@ -64,6 +97,7 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
     const [lastPrompt, setLastPrompt] = useState<string>('');
     const [savingRecipes, setSavingRecipes] = useState<string[]>([]);
     const [isStrictMode, setIsStrictMode] = useState(false);
+    const [isImageGenerationEnabled, setIsImageGenerationEnabled] = useState(true);
 
     useEffect(() => {
         fetchSavedRecipes();
@@ -100,6 +134,7 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                     setLastInventory(stateData.inventory || []);
                     setLastPrompt(stateData.prompt || '');
                     setIsStrictMode(stateData.isStrictMode || false);
+                    setIsImageGenerationEnabled(stateData.isImageGenerationEnabled !== undefined ? stateData.isImageGenerationEnabled : true);
                     if (stateData.prompt) setChefPrompt(stateData.prompt);
                     console.log("[ChefAI] Suggestions restored from application cache (localStorage).");
                 }
@@ -242,10 +277,15 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
         setSelectedRecipe(null);
         try {
             const suggestions = await getRecipeSuggestions(inventory, promptToUse, isStrictMode);
-            const recipesWithImages = suggestions.map(r => ({
-                ...r,
-                imageUrl: `https://image.pollinations.ai/prompt/${encodeURIComponent(r.name + ' professional food photography, gourmet plating, high resolution, delicious')}`
-            }));
+            const recipesWithImages = suggestions.map(r => {
+                if (!isImageGenerationEnabled) return { ...r, imageUrl: undefined };
+                // Add seed to bypass caching/quotas
+                const seed = Math.floor(Math.random() * 1000000);
+                return {
+                    ...r,
+                    imageUrl: `https://gen.pollinations.ai/image/${encodeURIComponent(r.name + ' professional food photography, gourmet plating, high resolution, delicious')}?seed=${seed}&model=flux&width=800&height=600&nologo=true&key=pk_aUQqWX2ukEtR9pPq`
+                };
+            });
             setRecipes(recipesWithImages);
 
             // Persist the generated suggestions to LocalStorage (Application Cache)
@@ -255,6 +295,7 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                     inventory: inventory,
                     prompt: promptToUse,
                     isStrictMode: isStrictMode,
+                    isImageGenerationEnabled: isImageGenerationEnabled,
                     timestamp: new Date().toISOString()
                 }));
 
@@ -366,9 +407,9 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                         <div className="flex flex-col md:flex-row gap-10">
                             <div className="w-full md:w-1/3">
                                 <div className="aspect-square bg-base-200 rounded-3xl flex items-center justify-center mb-4 overflow-hidden shadow-inner border border-base-content/5">
-                                    {selectedRecipe.imageUrl ? (
+                                    {selectedRecipe.imageUrl || isImageGenerationEnabled ? (
                                         <RecipeImage
-                                            src={selectedRecipe.imageUrl}
+                                            src={selectedRecipe.imageUrl || `https://gen.pollinations.ai/image/${encodeURIComponent(selectedRecipe.name + ' professional food photography, gourmet plating')}?seed=${(selectedRecipe.id?.length || 0) + selectedRecipe.name.length}&model=flux&width=800&height=600&nologo=true&key=pk_aUQqWX2ukEtR9pPq`}
                                             alt={selectedRecipe.name}
                                             className="w-full h-full"
                                         />
@@ -473,22 +514,78 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                                         )}
                                     </button>
                                 </div>
-                                <div className="flex items-center justify-center gap-4 mt-6 animate-in fade-in duration-700">
-                                    <span className={`text-xs font-bold uppercase tracking-widest transition-opacity ${!isStrictMode ? 'text-primary' : 'opacity-30'}`}>Creative</span>
-                                    <input
-                                        type="checkbox"
-                                        className="toggle toggle-primary toggle-sm shadow-md"
-                                        checked={isStrictMode}
-                                        onChange={(e) => setIsStrictMode(e.target.checked)}
-                                    />
-                                    <span className={`text-xs font-bold uppercase tracking-widest transition-opacity ${isStrictMode ? 'text-primary' : 'opacity-30'}`}>Fridge Only</span>
+                                <div className="flex flex-wrap items-center justify-center gap-6 mt-6 animate-in fade-in duration-700 bg-base-200/50 p-4 rounded-2xl border border-base-content/5">
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex flex-col items-end mr-1">
+                                            <span className={`text-[10px] font-black uppercase tracking-widest transition-opacity ${!isStrictMode ? 'text-primary' : 'opacity-30'}`}>Creative</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            className="toggle toggle-primary toggle-sm shadow-md"
+                                            checked={isStrictMode}
+                                            onChange={(e) => setIsStrictMode(e.target.checked)}
+                                        />
+                                        <div className="flex flex-col items-start ml-1">
+                                            <span className={`text-[10px] font-black uppercase tracking-widest transition-opacity ${isStrictMode ? 'text-primary' : 'opacity-30'}`}>Fridge Only</span>
+                                        </div>
+                                        <div className="group relative">
+                                            <Activity size={12} className="opacity-30 cursor-help hover:opacity-100 transition-opacity" />
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-base-300 text-[10px] rounded-xl shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 border border-base-content/5 leading-relaxed font-bold">
+                                                {isStrictMode
+                                                    ? "STRICT: Chef AI will ONLY suggest recipes using ingredients you currently have."
+                                                    : "CREATIVE: Chef AI can suggest adding a few extra ingredients to make better dishes."}
+                                            </div>
+                                        </div>
+                                    </div>
 
-                                    <div className="ml-2 group relative">
-                                        <Activity size={12} className="opacity-30 cursor-help hover:opacity-100 transition-opacity" />
-                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-base-300 text-[10px] rounded-xl shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 border border-base-content/5 leading-relaxed font-bold">
-                                            {isStrictMode
-                                                ? "STRICT: Chef AI will ONLY suggest recipes using ingredients you currently have."
-                                                : "CREATIVE: Chef AI can suggest adding a few extra ingredients to make better dishes."}
+                                    <div className="w-px h-6 bg-base-content/10 hidden sm:block"></div>
+
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex flex-col items-end mr-1">
+                                            <span className={`text-[10px] font-black uppercase tracking-widest transition-opacity ${!isImageGenerationEnabled ? 'text-warning' : 'opacity-30'}`}>Fast List</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            className="toggle toggle-warning toggle-sm shadow-md"
+                                            checked={isImageGenerationEnabled}
+                                            onChange={(e) => {
+                                                const enabled = e.target.checked;
+                                                setIsImageGenerationEnabled(enabled);
+
+                                                // Retroactively add image URLs if toggled ON
+                                                if (enabled && recipes.length > 0) {
+                                                    const updatedRecipes = recipes.map(r => {
+                                                        if (r.imageUrl) return r;
+                                                        const seed = Math.floor(Math.random() * 1000000);
+                                                        return {
+                                                            ...r,
+                                                            imageUrl: `https://gen.pollinations.ai/image/${encodeURIComponent(r.name + ' professional food photography, gourmet plating, high resolution, delicious')}?seed=${seed}&model=flux&width=800&height=600&nologo=true&key=pk_aUQqWX2ukEtR9pPq`
+                                                        };
+                                                    });
+                                                    setRecipes(updatedRecipes);
+                                                    localStorage.setItem('chef_ai_suggestions', JSON.stringify(updatedRecipes));
+                                                }
+
+                                                // Persist immediately when toggled
+                                                localStorage.setItem('chef_ai_state', JSON.stringify({
+                                                    inventory: inventory,
+                                                    prompt: chefPrompt,
+                                                    isStrictMode: isStrictMode,
+                                                    isImageGenerationEnabled: enabled,
+                                                    timestamp: new Date().toISOString()
+                                                }));
+                                            }}
+                                        />
+                                        <div className="flex flex-col items-start ml-1">
+                                            <span className={`text-[10px] font-black uppercase tracking-widest transition-opacity ${isImageGenerationEnabled ? 'text-warning' : 'opacity-30'}`}>AI Images</span>
+                                        </div>
+                                        <div className="group relative">
+                                            <Sparkles size={12} className="opacity-30 cursor-help hover:opacity-100 transition-opacity" />
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-base-300 text-[10px] rounded-xl shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 border border-base-content/5 leading-relaxed font-bold">
+                                                {isImageGenerationEnabled
+                                                    ? "ENABLED: Generates AI dish photos (Uses Pollen usage)."
+                                                    : "DISABLED: Only shows text recipes (Saves Pollen usage)."}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -497,6 +594,30 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
 
                         {viewMode === 'suggestions' ? (
                             <div className="space-y-8 mt-10">
+                                {isLoadingRecipes && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-10">
+                                        {[1, 2, 3].map((i) => (
+                                            <div key={i} className="card bg-base-100 shadow-md border border-base-200 overflow-hidden animate-pulse">
+                                                {isImageGenerationEnabled && <div className="aspect-video bg-base-200"></div>}
+                                                <div className="p-4 space-y-3">
+                                                    <div className="h-4 bg-base-200 rounded w-3/4"></div>
+                                                    <div className="h-3 bg-base-200 rounded w-full"></div>
+                                                    <div className="h-3 bg-base-200 rounded w-5/6"></div>
+                                                    <div className="flex justify-between items-center pt-2">
+                                                        <div className="h-2 bg-base-200 rounded w-1/4"></div>
+                                                        <div className="h-6 bg-base-200 rounded w-16"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div className="col-span-full text-center py-4">
+                                            <p className="text-sm font-bold opacity-40 animate-bounce">
+                                                {isImageGenerationEnabled ? "Envisioning Dishes (Flux)..." : "Curating Recipes..."}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {recipes.length === 0 && !isLoadingRecipes && (
                                     <>
                                         <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
@@ -565,13 +686,15 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
                                         {recipes.map((recipe, idx) => (
                                             <div key={idx} className="card bg-base-100 shadow-md border border-base-200 hover:border-primary transition-all overflow-hidden group">
-                                                <figure className="aspect-video overflow-hidden border-b border-base-200 relative">
-                                                    <RecipeImage
-                                                        src={recipe.imageUrl!}
-                                                        alt={recipe.name}
-                                                        className="w-full h-full"
-                                                    />
-                                                </figure>
+                                                {isImageGenerationEnabled && (
+                                                    <figure className="aspect-video overflow-hidden border-b border-base-200 relative">
+                                                        <RecipeImage
+                                                            src={recipe.imageUrl!}
+                                                            alt={recipe.name}
+                                                            className="w-full h-full"
+                                                        />
+                                                    </figure>
+                                                )}
                                                 <div className="p-4">
                                                     <h3 className="font-bold text-base mb-1 truncate capitalize">{recipe.name}</h3>
                                                     <p className="text-xs opacity-60 line-clamp-2 mb-3 h-8">{recipe.description}</p>
@@ -613,12 +736,16 @@ const ChefAIView: React.FC<ChefAIViewProps> = ({ inventory, setInventory, onAddN
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                         {savedRecipes.map((recipe, idx) => (
                                             <div key={idx} className="card bg-base-100 shadow-md border border-base-200 hover:border-primary transition-all overflow-hidden group cursor-pointer" onClick={() => handleOpenCookbook(recipe)}>
-                                                <figure className="aspect-video overflow-hidden relative border-b border-base-200">
-                                                    <RecipeImage
-                                                        src={recipe.imageUrl!}
-                                                        alt={recipe.name}
-                                                        className="w-full h-full"
-                                                    />
+                                                <figure className="aspect-video overflow-hidden relative border-b border-base-200 bg-base-200 flex items-center justify-center">
+                                                    {recipe.imageUrl || (isImageGenerationEnabled) ? (
+                                                        <RecipeImage
+                                                            src={recipe.imageUrl || `https://gen.pollinations.ai/image/${encodeURIComponent(recipe.name + ' professional food photography, gourmet plating')}?seed=${(recipe.id?.length || 0) + recipe.name.length}&model=flux&width=800&height=600&nologo=true&key=pk_aUQqWX2ukEtR9pPq`}
+                                                            alt={recipe.name}
+                                                            className="w-full h-full"
+                                                        />
+                                                    ) : (
+                                                        <ChefHat size={48} className="text-primary opacity-20" />
+                                                    )}
                                                     <button
                                                         className="absolute top-2 right-2 btn btn-xs btn-circle btn-error text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg"
                                                         onClick={(e) => handleDeleteSavedRecipe(recipe.id!, e)}

@@ -18,6 +18,7 @@ import recommender  # your original file; we do not modify it
 import geminiRecipe
 import uploadInventory
 import pandas as pd
+import random
 import re
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
@@ -634,15 +635,52 @@ def get_store_thumbnail(name: str, p_type: str = "", lat: Optional[float] = None
     # Without a key, we'll use high-quality authentic category photos.
     
     cat_photos = {
-        "Supermarket": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=1200",
-        "Pharmacy": "https://images.unsplash.com/photo-1563453392212-326f5e854473?auto=format&fit=crop&q=80&w=1200",
-        "Convenience": "https://images.unsplash.com/photo-1393392411082-8bc1001e991b?auto=format&fit=crop&q=80&w=1200",
-        "Hypermarket": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=1200"
+        "Supermarket": [
+            "https://cdn.pixabay.com/photo/2014/09/04/11/03/supermarket-435452_1280.jpg",
+            "https://thumbs.dreamstime.com/b/empty-supermarket-shopping-aisle-21946823.jpg?w=768",
+            "https://live.staticflickr.com/5705/23672578160_e46b93350d_b.jpg"
+        ],
+        "Pharmacy": [
+            "https://thumbs.dreamstime.com/b/kuala-lumpur-malaysia-june-caring-pharmacy-group-be-berhad-operates-chain-community-pharmacies-carry-pharmaceutical-95096324.jpg",
+            "https://tse2.mm.bing.net/th/id/OIP.wqHWoObEYhNGk5KfruCTdAHaFj?w=768&h=576&rs=1&pid=ImgDetMain&o=7&rm=3",
+            "https://tse2.mm.bing.net/th/id/OIP.Qx-j2QyjG_mMx0JrmSEJmQHaEJ?rs=1&pid=ImgDetMain&o=7&rm=3"
+        ],
+        "Convenience": [
+            "https://as2.ftcdn.net/v2/jpg/06/06/17/47/1000_F_606174797_RyXwK6uDJRdknzSnUXzWUEGY6JRC8hku.jpg",
+            "https://th.bing.com/th/id/R.996cb8281572383a97f14cb4ef8d2b1a?rik=ew%2bL265ICcF75A&riu=http%3a%2f%2f5.imimg.com%2fdata5%2fANDROID%2fDefault%2f2022%2f4%2fNE%2fGM%2fVC%2f24884784%2fproduct-jpeg-1000x1000.jpg&ehk=mslemFA0jL%2bVx24MtVSY1gUxy7QYWmULS8TY045nifU%3d&risl=&pid=ImgRaw&r=0",
+            "https://as2.ftcdn.net/v2/jpg/05/79/02/91/1000_F_579029194_JX66Kg0BFt4UNVQUmb63vwnrpeSnyd6j.jpg"
+        ],
+        "Hypermarket": [
+            "https://cdn.pixabay.com/photo/2014/09/04/11/03/supermarket-435452_1280.jpg",
+            "https://thumbs.dreamstime.com/b/empty-supermarket-shopping-aisle-21946823.jpg?w=768",
+            "https://live.staticflickr.com/5705/23672578160_e46b93350d_b.jpg"
+        ],
+        "Pasar": [
+            "https://tse4.mm.bing.net/th/id/OIP.WQh2gB8NukqVdAMc9tw0tQHaFb?rs=1&pid=ImgDetMain&o=7&rm=3",
+            "https://c8.alamy.com/comp/DT1NNP/food-market-kuching-sarawak-malaysian-borneo-malaysia-southeast-asia-DT1NNP.jpg",
+            "https://c8.alamy.com/comp/RTTD9N/traditional-market-in-kota-kinabalu-borneo-malaysia-RTTD9N.jpg",
+            "https://c8.alamy.com/comp/CW190J/traditional-market-pasar-gede-in-solo-surakarta-java-indonesia-CW190J.jpg",
+            "https://tse4.mm.bing.net/th/id/OIP.4zoLYnPjPqafcP7YxKvohwHaFj?w=751&h=563&rs=1&pid=ImgDetMain&o=7&rm=3",
+        ],
+        "Restoran": [
+            "https://assets.bucketlistly.blog/sites/5adf778b6eabcc00190b75b1/assets/5c8b3a40332d740012b61316/best-cafes-restarants-kuala-lumpur-malaysia-image-10.jpg",
+            "https://www.discovermnl.com.ph/wp-content/uploads/2022/09/542_DSF0852-scaled.jpg",
+            "https://s3-media0.fl.yelpcdn.com/bphoto/Yt7qlXl209I5UAu-0Njc-g/o.jpg",
+            "https://i0.wp.com/thefoodbunny.com/wp-content/uploads/2020/03/psx_20200303_1612591011139304759574028.jpg?w=1080&ssl=1",
+            "https://driftsoul.com/wp-content/uploads/2018/03/01.jpg",
+        ],
+        "Kedai": [
+            "https://media.timeout.com/images/103461686/image.jpg",
+            "https://resize.indiatvnews.com/en/resize/newbucket/715_-/2016/08/canteen-1471425818.jpg",
+            "https://media.timeout.com/images/103461683/1372/1029/image.jpg",
+            "https://lh5.googleusercontent.com/p/AF1QipM6bjLMQDh2vEGHPwjkCMrZ2BO5djT6TWH3Mtlw=w1080-k-no",
+            "https://live.staticflickr.com/65535/49127334338_a423116b12_b.jpg",
+        ],
     }
     
-    for cat, photo in cat_photos.items():
+    for cat, photos in cat_photos.items():
         if cat.upper() in p_type.upper():
-            return photo
+            return random.choice(photos)
             
     return "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800"
 
@@ -969,3 +1007,54 @@ def delete_saved_recipe(recipe_id: str):
     if uploadInventory.delete_saved_recipe(recipe_id):
         return {"status": "success"}
     raise HTTPException(status_code=500, detail="Failed to delete recipe")
+
+@app.get("/api/recipes/fallback-image")
+def get_fallback_image(q: str):
+    """
+    Backend proxy for Lexica.art API to bypass CORS.
+    Fetches real dish photos when Pollinations AI is throttled.
+    """
+    try:
+        url = f"https://lexica.art/api/v1/search?q={requests.utils.quote(q)}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data.get("images") and len(data["images"]) > 0:
+            return {"url": data["images"][0]["src"]}
+        
+        return {"url": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=500&auto=format&fit=crop"}
+    except Exception as e:
+        print(f"[Image Proxy] Error: {e}")
+        return {"url": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=500&auto=format&fit=crop"}
+
+@app.get("/api/recipes/image-proxy")
+def pollinations_proxy(prompt: str, seed: Optional[int] = 0, model: Optional[str] = 'flux'):
+    """
+    Relays Pollinations AI requests through the Unified API.
+    Extreme Resilience: 120s timeout and Triple Model rotation (Flux -> Turbo -> Dreamshaper).
+    Uses Secret Key for VIP authenticated priority.
+    """
+    from fastapi.responses import Response
+    api_key = os.getenv("POLLINATIONS_API_KEY")
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    models_to_try = ["flux", "turbo", "dreamshaper"]
+    last_error_body = ""
+    clean_prompt = " ".join(prompt.split())
+    for current_model in models_to_try:
+        try:
+            pollin_url = f"https://gen.pollinations.ai/image/{requests.utils.quote(clean_prompt)}"
+            params = {"seed": seed, "model": current_model, "width": 800, "height": 600, "nologo": "true"}
+            print(f"[Pollination Proxy] Attempting {current_model} (Wait: 120s, Seed: {seed})")
+            resp = requests.get(pollin_url, params=params, headers=headers, timeout=120)
+            if resp.status_code == 200:
+                print(f"[Pollination Proxy] Success with {current_model}")
+                return Response(content=resp.content, media_type="image/jpeg")
+            last_error_body = resp.text[:200]
+            print(f"[Pollination Proxy] {current_model} failed ({resp.status_code}): {last_error_body}")
+        except Exception as e:
+            print(f"[Pollination Proxy] {current_model} exception: {e}")
+            last_error_body = str(e)
+    raise HTTPException(status_code=502, detail=f"All AI providers failed: {last_error_body}")
