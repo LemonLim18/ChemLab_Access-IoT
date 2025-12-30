@@ -365,7 +365,9 @@ async def anomaly_monitor():
             now = datetime.now()
             with anomaly_lock:
                 # 1. Temperature Check (> 5C is unsafe)
-                if latest_sensor_data["temperature"] > 5:
+                # if latest_sensor_data["temperature"] > 5:
+                # Set higher threshold for temperature experimentation
+                if latest_sensor_data["temperature"] > 25:
                     await handle_anomaly("temperature", f"Critical Temperature: {latest_sensor_data['temperature']}°C", now)
                 else:
                     await resolve_anomaly("temperature", now)
