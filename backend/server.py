@@ -202,11 +202,10 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # MQTT Config
-# GCP
-MQTT_BROKER = "136.119.234.10"
-MQTT_PORT = 1883
-MQTT_USER = "smartfridge"
-MQTT_PASS = "password"
+MQTT_BROKER = os.getenv("MQTT_BROKER", "136.119.234.10")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_USER = os.getenv("MQTT_USER", "smartfridge")
+MQTT_PASS = os.getenv("MQTT_PASS", "password")
 
 def on_connect(client, userdata, flags, rc):
     print(f"Connected to MQTT Broker with result code {rc}")
@@ -594,8 +593,13 @@ BRAND_ASSETS = {
     # "GIANT": "https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&q=80&w=1200",
     "GIANT": "https://assets.theedgemarkets.com/Giant.jpg",
     # "LOTUS": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=1200",
+<<<<<<< HEAD
     "TESCO": "https://media.licdn.com/dms/image/v2/D5622AQEFQ4BI0Ee6fw/feedshare-shrink_800/feedshare-shrink_800/0/1687051088809?e=2147483647&v=beta&t=uXSa4xxj__w1Jg3HKw-witcNNHyWeshW8K2aw_krx9E",
     "LOTUS": "https://media.licdn.com/dms/image/v2/D5622AQEFQ4BI0Ee6fw/feedshare-shrink_800/feedshare-shrink_800/0/1687051088809?e=2147483647&v=beta&t=uXSa4xxj__w1Jg3HKw-witcNNHyWeshW8K2aw_krx9E",
+=======
+    "LOTUS": "https://corp.lotuss.com.my/stores/store-locator/lotuss-puchong",
+    # "AEON": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=1200",
+>>>>>>> dev
     "AEON": "https://assets.bwbx.io/images/users/iqjWHBFdfxIU/i2G8P4LD24RA/v0/-1x-1.webp",
     # "MYDIN": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=1200",
     "MYDIN": "https://i.nextmedia.com.au/News/MYDIN_partners_Zebra_Technologies_for_warehouse_and_ecommerce_operations.jpg",

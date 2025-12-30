@@ -9,3 +9,5 @@ geopy
 winsdk; platform_system == "Windows"
 paho-mqtt
 supabase
+rapidfuzz
+resend
