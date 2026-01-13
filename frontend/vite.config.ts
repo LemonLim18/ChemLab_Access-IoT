@@ -13,7 +13,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
-        verified: path.resolve(__dirname, 'verified.html'),
       },
     },
   },

@@ -1,0 +1,37 @@
+# ===== Backend Docker Compose =====
+# Deploy only the FastAPI backend
+#
+# Usage:
+#   cd backend
+#   docker-compose -f docker-compose.yml up -d --build
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chemlab-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # MQTT Broker (GCP IP - set via environment or .env file)
+      - MQTT_BROKER=${MQTT_BROKER:-34.45.208.206}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_USER=${MQTT_USER}
+      - MQTT_PASS=${MQTT_PASS}
+      # Supabase credentials
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - chemlab-network
+
+networks:
+  chemlab-network:
+    driver: bridge

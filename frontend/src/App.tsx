@@ -33,6 +33,7 @@ import type {
   WebSocketMessage
 } from '../types';
 import { INITIAL_STORAGE_STATE, INITIAL_NOTIFICATIONS, DEFAULT_THRESHOLDS, TABS } from '../constants';
+import { WS_URL, api } from './config';
 import type { TabType } from '../constants';
 import { supabase } from './lib/supabaseClient';
 
@@ -162,7 +163,7 @@ const App: React.FC = () => {
         setUserEmail(session.user.email || '');
         
         // Check if user has registered face
-        fetch(`http://${window.location.hostname}:8000/api/user-face-status/${session.user.id}`)
+        fetch(api.userFaceStatus(session.user.id))
           .then(res => res.json())
           .then(data => {
             setUserHasFace(data.has_face);
@@ -182,7 +183,7 @@ const App: React.FC = () => {
         setUserEmail(session.user.email || '');
         
         // Check if user has registered face
-        fetch(`http://${window.location.hostname}:8000/api/user-face-status/${session.user.id}`)
+        fetch(api.userFaceStatus(session.user.id))
           .then(res => res.json())
           .then(data => {
             setUserHasFace(data.has_face);
@@ -204,14 +205,14 @@ const App: React.FC = () => {
   const fetchInitialData = useCallback(async () => {
     try {
       // Fetch current state
-      const stateRes = await fetch(`http://${window.location.hostname}:8000/api/state`);
+      const stateRes = await fetch(api.state);
       if (stateRes.ok) {
         const state = await stateRes.json();
         setStorageState(state);
       }
       
       // Fetch access logs
-      const logsRes = await fetch(`http://${window.location.hostname}:8000/api/access-logs`);
+      const logsRes = await fetch(api.accessLogs);
       if (logsRes.ok) {
         const logs = await logsRes.json();
         setAccessLog(logs);
@@ -219,14 +220,14 @@ const App: React.FC = () => {
       
       // Fetch registered users
 
-      const usersRes = await fetch(`http://${window.location.hostname}:8000/api/registered-users`);
+      const usersRes = await fetch(api.registeredUsers);
       if (usersRes.ok) {
         const users = await usersRes.json();
         setRegisteredUsers(users);
       }
       
       // Fetch thresholds
-      const threshRes = await fetch(`http://${window.location.hostname}:8000/api/thresholds`);
+      const threshRes = await fetch(api.thresholds);
       if (threshRes.ok) {
         const data = await threshRes.json();
         setThresholds(data);
@@ -242,7 +243,7 @@ const App: React.FC = () => {
   
   // ========== WEBSOCKET ==========
   useEffect(() => {
-    const wsUrl = `ws://${window.location.hostname}:8000/ws`;
+    const wsUrl = WS_URL;
     const ws = new WebSocket(wsUrl);
     
     ws.onmessage = (event) => {

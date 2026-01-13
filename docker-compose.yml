@@ -1,0 +1,67 @@
+# ===== Docker Compose for ChemLab Access Control System =====
+# Deploy backend and frontend containers for GCP
+#
+# Usage:
+#   1. Copy .env.example to .env and fill in your values
+#   2. Build: docker-compose build
+#   3. Run: docker-compose up -d
+#   4. Stop: docker-compose down
+#
+# For dynamic IP (GCP):
+#   Update MQTT_BROKER in .env and rebuild frontend (API_URL changes)
+
+services:
+  # ===== Backend API (FastAPI) =====
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chemlab-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # MQTT Broker (GCP dynamic IP - update in .env)
+      - MQTT_BROKER=${MQTT_BROKER:-34.45.208.206}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_USER=${MQTT_USER}
+      - MQTT_PASS=${MQTT_PASS}
+      # Supabase credentials
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - chemlab-network
+
+  # ===== Frontend (React + Nginx) =====
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # These are baked into the frontend at build time
+        - VITE_API_URL=${API_URL:-http://localhost:8000}
+        - VITE_WS_URL=${WS_URL:-ws://localhost:8000/ws}
+    container_name: chemlab-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - chemlab-network
+
+networks:
+  chemlab-network:
+    driver: bridge

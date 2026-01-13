@@ -1,0 +1,35 @@
+# ===== Frontend Docker Compose =====
+# Deploy only the React frontend with nginx
+#
+# Usage:
+#   cd frontend
+#   docker-compose -f docker-compose.yml up -d --build
+#
+# Important: API_URL and WS_URL are baked at BUILD TIME
+# Update .env and rebuild when backend IP changes
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # These are baked into the frontend at build time
+        - VITE_API_URL=${API_URL:-http://localhost:8000}
+        - VITE_WS_URL=${WS_URL:-ws://localhost:8000/ws}
+    container_name: chemlab-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - chemlab-network
+
+networks:
+  chemlab-network:
+    driver: bridge

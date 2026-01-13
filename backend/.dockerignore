@@ -1,17 +1,67 @@
-.env
+# Dependencies
 .venv
 __pycache__
-csv_files
-old_ai_model
-fridge_model
-images
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment files (secrets - pass at runtime)
+.env
+.env.*
+*.env
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Git
 .git
 .gitignore
-Dockerfile.server
-smartfridge-iot.service
-stable_recommender.py
-server_docker.py
-iot_code.py
-makerFeather.ino
-*.csv
+
+# Docker files (don't need to copy into image)
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
+
+# Logs and temp files
 *.log
+*.tmp
+*.temp
+
+# Test files
+tests/
+test_*.py
+*_test.py
+pytest_cache/
+.pytest_cache/
+
+# Old/backup files
+*.bak
+*.backup
+old_*
+*_old
+
+# Model files and large data
+*.csv
+*.pkl
+*.h5
+*.model
+csv_files/
+fridge_model/
+old_ai_model/
+images/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed in container)
+*.md
+!README.md

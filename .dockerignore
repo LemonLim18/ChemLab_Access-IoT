@@ -1,0 +1,25 @@
+# Docker environment file (do not commit to git)
+.env
+*.env
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+
+# Git
+.git
+.github
+
+# Documentation (optional - can include if helpful)
+# *.md
+
+# PDF assignments
+*.pdf
+
+# Raspberry Pi code (not deployed to cloud)
+raspberry_iot/
