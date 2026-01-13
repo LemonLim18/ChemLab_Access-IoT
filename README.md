@@ -160,6 +160,142 @@ Male Voice: "No face detected. Please look at the camera and try again."
 - Supabase account (PostgreSQL + Storage)
 - MQTT Broker (e.g., Mosquitto, HiveMQ Cloud)
 
+### 🐍 Why Miniconda? (Face Recognition Dependencies)
+
+The `face_recognition` library is the core of our biometric authentication system. It uses **dlib**, a powerful C++ machine learning library, to compute 128-dimensional face encodings. However, installing dlib on Windows presents significant challenges:
+
+#### The Problem
+
+```
+pip install dlib  # ❌ Often fails on Windows!
+```
+
+**Common errors:**
+- `CMake error: No CMAKE_C_COMPILER could be found`
+- `error: Microsoft Visual C++ 14.0 or greater is required`
+- Build timeouts and memory issues during compilation
+
+**Root Cause:** dlib requires C++ compilation tools (CMake, Visual Studio Build Tools) that are complex to configure correctly on Windows.
+
+#### The Solution: Miniconda
+
+Miniconda provides **pre-compiled binary packages** through conda-forge, bypassing the need for local C++ compilation entirely:
+
+```bash
+# ✅ Works reliably on Windows, macOS, and Linux
+conda install -c conda-forge dlib -y
+```
+
+**Benefits of Miniconda:**
+
+| Benefit | Description |
+|---------|-------------|
+| **Pre-compiled binaries** | No C++ compiler required |
+| **Dependency management** | Automatically handles complex native dependencies |
+| **Environment isolation** | Clean separation from system Python |
+| **Cross-platform** | Same commands work on Windows, macOS, Linux |
+| **Reproducibility** | Consistent environments across machines |
+
+#### How Face Recognition Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Face Recognition Pipeline                 │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Image Input                                              │
+│     └─→ User uploads photo or camera captures image         │
+│                                                              │
+│  2. Face Detection (dlib HOG/CNN)                           │
+│     └─→ Locates face boundaries in the image                │
+│                                                              │
+│  3. Face Encoding (dlib ResNet)                             │
+│     └─→ Generates 128-dimensional feature vector            │
+│         [0.12, -0.34, 0.56, ..., 0.78] (128 floats)         │
+│                                                              │
+│  4. Comparison                                               │
+│     └─→ Euclidean distance between stored and new encoding  │
+│         distance < 0.6 = MATCH ✓                            │
+│                                                              │
+│  5. Multi-Image Averaging (Our Enhancement)                 │
+│     └─→ Average of 3-5 encodings for robust recognition    │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Install Miniconda
+
+**Windows:**
+```bash
+# Download from: https://docs.conda.io/en/latest/miniconda.html
+# Run the installer, add to PATH when prompted
+```
+
+**macOS/Linux:**
+```bash
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+```
+
+#### Essential Conda Commands
+
+After installing Miniconda, here are the key commands you'll use:
+
+**Environment Management:**
+
+```bash
+# Create a new environment with specific Python version
+conda create --name chemlab python=3.11
+
+# Activate the environment (MUST do this before installing packages)
+conda activate chemlab
+
+# Deactivate current environment
+conda deactivate
+
+# List all environments
+conda env list
+
+# Remove an environment
+conda remove --name chemlab --all
+```
+
+**Package Installation (conda-forge channel):**
+
+```bash
+# Install packages from conda-forge (recommended for scientific packages)
+conda install conda-forge::dlib
+conda install conda-forge::numpy
+conda install conda-forge::scipy
+
+# Alternative syntax (same result)
+conda install -c conda-forge dlib numpy scipy
+
+# Install multiple packages at once
+conda install -c conda-forge dlib numpy pandas matplotlib
+```
+
+**Why conda-forge?**
+
+| Channel | Description |
+|---------|-------------|
+| `defaults` | Anaconda's curated packages (may be older versions) |
+| `conda-forge` | Community-maintained, up-to-date, includes dlib binaries |
+
+**Mixing pip and conda:**
+
+```bash
+# First install conda packages (native dependencies)
+conda install -c conda-forge dlib numpy
+
+# Then use pip for pure-Python packages
+pip install face_recognition fastapi paho-mqtt
+```
+
+> ⚠️ **Important:** Always install conda packages first, then pip packages. This avoids dependency conflicts.
+
+---
+
 ### Backend Server Setup
 
 ```bash
@@ -167,12 +303,17 @@ Male Voice: "No face detected. Please look at the camera and try again."
 git clone <repository-url>
 cd chemical_detector
 
-# Create conda environment (recommended for dlib compatibility)
+# Create conda environment (REQUIRED for dlib/face_recognition)
 conda create -n chemlab python=3.11 -y
 conda activate chemlab
+
+# Install dlib from conda-forge (pre-compiled, no C++ tools needed)
 conda install -c conda-forge dlib -y
 
-# Install Python dependencies
+# Now face_recognition will install successfully
+pip install face_recognition
+
+# Install remaining Python dependencies
 cd backend
 pip install -r requirements.txt
 
