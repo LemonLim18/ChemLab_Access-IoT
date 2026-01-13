@@ -6,8 +6,11 @@ google-generativeai
 pandas
 requests
 geopy
-winsdk; platform_system == "Windows"
+# winsdk removed - requires Visual Studio Build Tools
 paho-mqtt
 supabase
 rapidfuzz
 resend
+face_recognition
+numpy
+Pillow

@@ -1,0 +1,6 @@
+RPi.GPIO
+adafruit-circuitpython-dht
+paho-mqtt
+supabase
+python-dotenv
+Pillow
