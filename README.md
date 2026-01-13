@@ -1,65 +1,100 @@
-# Chemical Lab Storage Container System 🧪🔐
+# ChemLab Access Control System 🧪🔐
 
-A secure IoT-based chemical storage access control system with **face recognition**, **environmental monitoring**, and **real-time alerts**.
+A comprehensive IoT-based chemical storage access control system featuring **AI face recognition**, **dual-voice feedback**, **environmental monitoring**, **real-time dashboard**, and **intrusion detection**.
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
 | Feature | Description |
 |---------|-------------|
-| 🔐 **Face Recognition** | Multi-image biometric authentication using averaged face encodings for improved accuracy |
+| 🔐 **AI Face Recognition** | Multi-image biometric authentication using averaged face encodings for robust accuracy |
+| 🎤 **Dual Voice System** | Female voice (gTTS) for friendly messages, Male voice (Festival) for security alerts |
 | 🌡️ **Environmental Monitoring** | Real-time temperature & humidity tracking with configurable thresholds |
-| 🚨 **Security Alerts** | Synchronized LED + Buzzer alerts (5 cycles, 0.2s ON / 0.3s OFF) |
-| 📱 **Web Dashboard** | Modern React dashboard with GSAP animations and hover modals |
-| 🔒 **Servo Door Lock** | Automatic door control with 10-second auto-lock |
-| 📊 **Access Logging** | Complete history stored in Supabase with real-time sync |
-| 🔔 **Notification Center** | Slide-out panel for viewing system alerts and events |
+| 🚨 **Intrusion Detection** | IR sensor-based door monitoring with automatic siren and voice alerts |
+| 📱 **Mobile-Responsive Dashboard** | Modern React dashboard with bottom navigation and live data |
+| 🔒 **Smart Door Lock** | Servo control with 15-second auto-lock and visual countdown timer |
+| ⏱️ **Live Countdown** | Real-time countdown displayed on dashboard showing time until auto-lock |
+| 📊 **Access Logging** | Complete access history with timestamps stored in Supabase |
+| 🔔 **Notification Center** | Slide-out panel with click-outside dismissal for system events |
+| 📈 **Historical Charts** | Temperature and humidity trends visualized with Recharts |
 
 ---
 
-## 🔄 User Workflow
+## 🆕 Latest Updates
 
-The system is designed for secure, seamless access control:
+### Voice System
 
-1.  **Registration (One-time):**
-    *   Admin accesses the Web Dashboard.
-    *   Clicks "Add User" and uploads 3-5 photos of the authorized personnel.
-    *   System computes an average biometric template and saves it to the database.
+- **Dual Voice Profiles**: Context-aware voice selection
+  - **Female Voice** (gTTS + mpg123): Friendly, welcoming tone
+  - **Male Voice** (Festival/espeak-ng): Authoritative, warning tone
+- **Optimized Playback**: Single announcement per action (no overlapping voices)
 
-2.  **Access Request:**
-    *   User walks up to the container and presses the **Physical Button**.
-    *   **IoT Device** immediately captures a high-res photo.
-    *   Photo is sent securely to the **Backend Server**.
+### Dashboard Improvements
 
-3.  **Authentication & Action:**
-    *   **Backend** compares the photo against all registered users.
-    *   **If Match Found:**
-        *   Server logs "Authorized Access".
-        *   Sends `UNLOCK` command to IoT Device.
-        *   **Door Unlocks** for 10 seconds.
-    *   **If No Match:**
-        *   Server logs "Access Denied".
-        *   Sends `ALERT` command to IoT Device.
-        *   **Red LED Flashes + Buzzer Sounds** to deter the user.
+- **Bottom Navigation Bar**: Mobile-friendly tab navigation fixed at screen bottom
+- **Real-time Countdown**: 15-second auto-lock countdown with pulsing animation
+- **SweetAlert Integration**: Loading indicators during face registration
+- **Flask Icon Branding**: ChemLab-themed flask icon throughout the UI
+- **Responsive Header**: Compact mobile view with adaptive spacing
 
-4.  **Monitoring:**
-    *   Dashboard updates instantly with the new access log entry.
-    *   If the door is left open for >2 minutes, the system triggers a "Door Open Warning" alert.
+### Security Enhancements
+
+- **Unlock Source Tracking**: Differentiates between `authorized` (face), `remote` (dashboard), and `forced` access
+- **Immediate Lock on Close**: Door locks instantly when IR sensor detects door closure
+- **Smart Intrusion Detection**: Alerts only when door opened without authorization
 
 ---
 
-## 🤖 IoT Device Logic (Raspberry Pi)
+## 🔄 Complete User Workflow
 
-The Raspberry Pi acts as the intelligent edge controller (`iot_code.py`):
+### 1. User Registration (One-time Setup)
 
-*   **Telemetry Loop:** Reads Temperature (DHT11) and Humidity every 2 seconds and publishes to `chemlab/telemetry`.
-*   **Event Listener:**
-    *   **Button:** Triggers camera capture function.
-    *   **IR Sensor:** Detects if an object (or door) is obstructing the opening. Used to track "Door Open" duration.
-*   **Actuator Controller:**
-    *   **Servo:** Rotates to 90° (Unlock) or 0° (Lock) based on MQTT commands. Includes a safety auto-lock timer.
-    *   **Alert System:** Executes non-blocking threaded patterns for LED and Buzzer (e.g., rapid flash for intrusion, slow pulse for connection).
+1. Admin logs into the Web Dashboard
+2. Navigate to **Users** tab → Click **"Add User"**
+3. Upload 3-5 clear photos of the authorized person
+4. System computes averaged biometric template
+5. SweetAlert shows "Processing..." → "Face Registered!" confirmation
+
+### 2. Access Request Flow
+
+1. User approaches the storage container
+2. Presses the **Physical Button** on the Raspberry Pi
+3. **Camera** captures a high-resolution photo
+4. Image is uploaded to Supabase Storage
+5. Backend receives the image URL and performs face recognition
+
+### 3. Authentication Response
+
+**If Authorized:**
+```
+Female Voice: "Access Granted. Welcome, [Name]"
+→ Servo rotates to 90° (unlocked)
+→ Dashboard shows: "OPEN" + "Auto-lock in 15s" countdown
+→ After door closes OR 15 seconds → Auto-lock
+```
+
+**If Unauthorized:**
+```
+Male Voice: "Access Denied. You are not authorized to enter this area."
+→ LED flashes + Buzzer sounds (siren pattern)
+→ Male Voice: "Alert! Intrusion Detected"
+→ Dashboard shows Security Alert notification
+```
+
+**If No Face Detected:**
+```
+Male Voice: "No face detected. Please look at the camera and try again."
+→ No siren (just a positioning issue)
+```
+
+### 4. Auto-Lock Behavior
+
+| Scenario | Action |
+|----------|--------|
+| Door never opened | Female: "Door closed." → Silent lock |
+| Door opened then closed | Immediate lock on IR detection |
+| Door left open > 15s | Female: "Please close the door." (every 15s) |
 
 ---
 
@@ -68,121 +103,220 @@ The Raspberry Pi acts as the intelligent edge controller (`iot_code.py`):
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Web Dashboard (React)                     │
-│              http://localhost:5173                           │
-│  • GSAP Animations    • Hover Modals    • Notification Center│
+│                  http://localhost:5173                       │
+│                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │  Dashboard  │  │ Access Log  │  │ Users │ Settings    │  │
+│  │             │  │             │  │                     │  │
+│  │ • Door Card │  │ • History   │  │ • Add User          │  │
+│  │ • Countdown │  │ • Timeline  │  │ • Face Registration │  │
+│  │ • Temp/Hum  │  │             │  │ • Thresholds        │  │
+│  │ • Charts    │  │             │  │                     │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+│                                                              │
+│  [Bottom Navigation: Dashboard | Access Log | Users | Settings]
 └──────────────────────────┬──────────────────────────────────┘
                            │ WebSocket + REST API
 ┌──────────────────────────▼──────────────────────────────────┐
 │                  Backend Server (FastAPI)                    │
-│              http://localhost:8000                           │
-│  • Multi-Image Face Recognition    • Access Logging          │
-│  • MQTT Handler                    • Anomaly Monitoring      │
-│  • Supabase Integration            • Real-time WebSocket     │
+│                  http://localhost:8000                       │
+│                                                              │
+│  • /api/register-face    - Multi-image face registration    │
+│  • /api/trigger          - Remote capture/lock/unlock       │
+│  • /ws                   - Real-time WebSocket updates      │
+│  • MQTT Handler          - Bi-directional IoT communication │
+│  • Anomaly Detection     - Temperature/humidity monitoring  │
 └──────────────────────────┬──────────────────────────────────┘
-                           │ MQTT (chemlab/*)
+                           │ MQTT Protocol (chemlab/*)
 ┌──────────────────────────▼──────────────────────────────────┐
 │               Raspberry Pi 2 Model B                         │
-│  • Pi Camera       • DHT11 (Temp/Humidity)                  │
-│  • Button          • IR Sensor (Intrusion Detection)        │
-│  • Servo Motor     • LED + Buzzer (Alerts)                  │
+│                                                              │
+│  ┌─────────────────┐  ┌─────────────────────────────────┐   │
+│  │ Input Sensors   │  │ Output Actuators                │   │
+│  │                 │  │                                 │   │
+│  │ • Pi Camera     │  │ • Servo Motor (Door Lock)       │   │
+│  │ • DHT11 Sensor  │  │ • Red LED (Visual Alert)        │   │
+│  │ • Push Button   │  │ • Buzzer (Audio Alert)          │   │
+│  │ • IR Sensor     │  │ • Speaker (Voice Feedback)      │   │
+│  └─────────────────┘  └─────────────────────────────────┘   │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ Voice Modules                                        │    │
+│  │ • voice/femaleTalk.py - gTTS + mpg123               │    │
+│  │ • voice/maleTalk.py   - Festival/espeak-ng          │    │
+│  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Installation Guide
 
 ### Prerequisites
+
 - Python 3.11+ (Miniconda recommended for Windows)
 - Node.js 18+
-- Raspberry Pi with camera module
-- Supabase account
+- Raspberry Pi 2/3/4 with Pi Camera
+- Supabase account (PostgreSQL + Storage)
+- MQTT Broker (e.g., Mosquitto, HiveMQ Cloud)
 
-### Backend Server (Windows with Miniconda)
+### Backend Server Setup
 
 ```bash
-# Create environment with dlib support
+# Clone the repository
+git clone <repository-url>
+cd chemical_detector
+
+# Create conda environment (recommended for dlib compatibility)
 conda create -n chemlab python=3.11 -y
 conda activate chemlab
 conda install -c conda-forge dlib -y
 
-# Install dependencies
+# Install Python dependencies
 cd backend
 pip install -r requirements.txt
 
-# Start server
+# Configure environment variables
+cp .env.example .env
+# Edit .env with your Supabase and MQTT credentials
+
+# Start the server
 uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Frontend
+### Frontend Setup
 
 ```bash
 cd frontend
 npm install
 npm run dev
+# Dashboard available at http://localhost:5173
 ```
 
-### IoT Device (Raspberry Pi)
+### Raspberry Pi Setup
 
 ```bash
-# Install dependencies
-pip install -r requirements_iot.txt
+# Update system
+sudo apt-get update && sudo apt-get upgrade -y
 
-# Create .env.iot with MQTT credentials
+# Install system dependencies
+sudo apt-get install -y python3-pip python3-dev
+sudo apt-get install -y libatlas-base-dev  # For numpy
+sudo apt-get install -y mpg123 festival espeak-ng  # Voice synthesis
+
+# Install Python dependencies
+cd raspberry_iot
+pip3 install -r requirements_iot.txt
+pip3 install gTTS
+
+# Configure environment
 cp .env.iot.example .env.iot
+# Edit .env.iot with MQTT and Supabase credentials
 
-# Run the IoT code
-python iot_code.py
+# Run the IoT controller
+python3 iot_code.py
 ```
 
 ---
 
-## 🔌 GPIO Pinout (Raspberry Pi 2 Model B)
+## 🔌 Hardware Configuration
 
-| Component | GPIO Pin | Physical Pin | Notes |
-|-----------|----------|--------------|-------|
-| DHT11 Data | GPIO 27 | Pin 13 | 10kΩ pull-up resistor |
-| Button | GPIO 17 | Pin 11 | Internal pull-up enabled |
-| Red LED | GPIO 22 | Pin 15 | 220Ω current limiting resistor |
-| IR Sensor | GPIO 24 | Pin 18 | 3.3V compatible module |
-| Buzzer | GPIO 25 | Pin 22 | Active buzzer (PWM) |
-| Servo | GPIO 12 | Pin 32 | PWM0 capable pin |
+### GPIO Pinout (Raspberry Pi 2 Model B)
+
+| Component | GPIO Pin | Physical Pin | Connection Notes |
+|-----------|----------|--------------|------------------|
+| **DHT11** (Data) | GPIO 27 | Pin 13 | 10kΩ pull-up resistor to 3.3V |
+| **Button** | GPIO 17 | Pin 11 | Internal pull-up enabled, connect to GND |
+| **Red LED** | GPIO 22 | Pin 15 | 220Ω resistor to GND |
+| **IR Sensor** (OUT) | GPIO 24 | Pin 18 | 3.3V compatible module |
+| **Buzzer** | GPIO 25 | Pin 22 | Active buzzer, PWM control |
+| **Servo** (Signal) | GPIO 12 | Pin 32 | PWM0 capable, 50Hz frequency |
+
+### Power Connections
+
+| Component | VCC | GND |
+|-----------|-----|-----|
+| DHT11 | 3.3V | GND |
+| IR Sensor | 5V | GND |
+| Servo | 5V (external) | Common GND |
+| Buzzer | - | GND |
 
 ---
 
-## 📡 MQTT Topics
+## 📡 MQTT Communication
 
-| Topic | Direction | Payload |
+### Topic Structure
+
+| Topic | Direction | Purpose |
 |-------|-----------|---------|
-| `chemlab/telemetry` | Pi → Backend | `{temperature_celsius, humidity_percent, timestamp}` |
-| `chemlab/access` | Pi → Backend | `{image_url}` - Face capture for recognition |
-| `chemlab/access_response` | Backend → Pi | `{authorized, name}` - Unlock/deny decision |
-| `chemlab/status` | Pi → Backend | `{door_state, last_access_by}` |
-| `chemlab/intrusion` | Pi → Backend | `{message}` - IR sensor alerts |
-| `chemlab/command` | Backend → Pi | `{command: "capture"\|"lock"\|"unlock"}` |
+| `chemlab/telemetry` | Pi → Backend | Temperature, humidity readings (every 2s) |
+| `chemlab/access` | Pi → Backend | Face capture image URL for recognition |
+| `chemlab/access_response` | Backend → Pi | Authorization result with name/reason |
+| `chemlab/status` | Pi → Backend | Door state, auto_lock_at timestamp |
+| `chemlab/intrusion` | Pi → Backend | Security alert messages |
+| `chemlab/alert` | Pi → Backend | System warnings (door open, etc.) |
+| `chemlab/command` | Backend → Pi | Remote control commands |
+
+### Payload Examples
+
+**Telemetry:**
+```json
+{
+  "device": "chemlab_pi",
+  "temperature_celsius": 23.5,
+  "humidity_percent": 45.2,
+  "timestamp": "2026-01-13 18:45:00"
+}
+```
+
+**Access Response:**
+```json
+{
+  "authorized": true,
+  "name": "John Doe",
+  "reason": "authorized"
+}
+```
+
+**Status Update:**
+```json
+{
+  "device": "chemlab_pi",
+  "door_state": "unlocked",
+  "auto_lock_at": "2026-01-13 18:45:15",
+  "last_access_by": "John Doe",
+  "timestamp": "2026-01-13 18:45:00"
+}
+```
 
 ---
 
-## 🌡️ Environment Thresholds
+## 🎤 Voice System Details
 
-| Parameter | Min | Max | Alert |
-|-----------|-----|-----|-------|
-| Temperature | 15°C | 25°C | Above/below triggers warning |
-| Humidity | 30% | 60% | Above/below triggers warning |
-| Door Open Reminder | - | 2 min | Alerts every 2 minutes if left open |
+### Female Voice (`voice/femaleTalk.py`)
 
----
+- **Technology**: Google Text-to-Speech (gTTS) + mpg123 playback
+- **Accent**: Australian English (`tld='com.au'`)
+- **Usage**: Welcoming, confirmations, gentle reminders
 
-## 🔐 Face Recognition
+| Trigger | Message |
+|---------|---------|
+| Access Granted | "Access Granted. Welcome, {name}" |
+| Door Auto-locked | "Door closed." |
+| Door Left Open | "Please close the door." |
 
-The system uses **multi-image registration** for improved accuracy:
+### Male Voice (`voice/maleTalk.py`)
 
-1. **Upload multiple photos** (3-5 recommended) of the same person
-2. Backend detects faces in each image and extracts encodings
-3. **Average encoding** is computed and stored
-4. Images are saved to Supabase Storage in folders: `registered_faces/{user_name}/`
+- **Primary**: Festival `text2wave` for natural speech
+- **Fallback**: espeak-ng with optimized parameters
+- **Usage**: Warnings, security alerts, access denials
 
-This approach provides robust recognition across different lighting conditions and angles.
+| Trigger | Message |
+|---------|---------|
+| Access Denied | "Access Denied. You are not authorized to enter this area." |
+| Intrusion | "Alert! Intrusion Detected" |
+| No Face | "No face detected. Please look at the camera and try again." |
+| System Error | "System error. Please contact an administrator." |
 
 ---
 
@@ -191,67 +325,113 @@ This approach provides robust recognition across different lighting conditions a
 ```
 chemical_detector/
 ├── backend/
-│   ├── server.py           # FastAPI server with face recognition
-│   ├── requirements.txt    # Python dependencies
-│   └── .env                # Supabase credentials
+│   ├── server.py              # FastAPI server, face recognition, MQTT
+│   ├── requirements.txt       # Python dependencies
+│   └── .env                   # Supabase + MQTT credentials
+│
 ├── frontend/
-│   ├── src/App.tsx         # Main React application
-│   ├── types.ts            # TypeScript interfaces
-│   └── constants.tsx       # Theme and initial state
+│   ├── src/
+│   │   └── App.tsx            # Main React application (1700+ lines)
+│   ├── types.ts               # TypeScript interfaces
+│   ├── constants.tsx          # Theme, initial state, tabs
+│   └── package.json           # Node dependencies
+│
 ├── raspberry_iot/
-│   ├── iot_code.py         # Raspberry Pi IoT code
-│   ├── requirements_iot.txt
-│   ├── .env.iot            # MQTT credentials
-│   └── info.md             # Hardware documentation
-└── README.md
+│   ├── iot_code.py            # Main Raspberry Pi controller
+│   ├── requirements_iot.txt   # Pi-specific dependencies
+│   ├── .env.iot               # MQTT + Supabase credentials
+│   └── voice/
+│       ├── maleTalk.py        # Male voice (Festival/espeak-ng)
+│       ├── femaleTalk.py      # Female voice (gTTS + mpg123)
+│       └── testTalk.py        # Voice testing utility
+│
+└── README.md                  # This documentation
 ```
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ Technology Stack
 
 | Layer | Technologies |
 |-------|--------------|
-| **Frontend** | React 19, TypeScript, TailwindCSS, GSAP, SweetAlert2 |
-| **Backend** | Python, FastAPI, face_recognition, paho-mqtt, Uvicorn |
+| **Frontend** | React 19, TypeScript, TailwindCSS, Recharts, SweetAlert2, Lucide Icons |
+| **Backend** | Python 3.11, FastAPI, face_recognition, paho-mqtt, Uvicorn |
 | **Database** | Supabase (PostgreSQL + Storage) |
-| **IoT** | Raspberry Pi 2 Model B, Python, RPi.GPIO, DHT11 |
-| **Communication** | MQTT, WebSocket, REST API |
+| **IoT** | Raspberry Pi 2 Model B, RPi.GPIO, Adafruit_DHT, PiCamera |
+| **Voice** | gTTS, Festival, espeak-ng, mpg123 |
+| **Communication** | MQTT (paho-mqtt), WebSocket, REST API |
 
 ---
 
 ## ⚙️ Environment Variables
 
-### Backend (.env)
+### Backend (`.env`)
+
 ```env
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-service-role-key
-MQTT_BROKER=your-mqtt-broker-ip
-MQTT_PORT=1883
-```
-
-### IoT Device (.env.iot)
-```env
 MQTT_BROKER=your-mqtt-broker-ip
 MQTT_PORT=1883
 MQTT_USER=your-username
 MQTT_PASS=your-password
 ```
 
+### Raspberry Pi (`.env.iot`)
+
+```env
+MQTT_BROKER=your-mqtt-broker-ip
+MQTT_PORT=1883
+MQTT_USER=your-username
+MQTT_PASS=your-password
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-service-role-key
+```
+
 ---
 
-## 📜 License
+## � Troubleshooting
 
-MIT License - Feel free to use and modify!
+### Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| `ModuleNotFoundError: face_recognition` | Use conda: `conda install -c conda-forge dlib`, then `pip install face_recognition` |
+| Voice not playing | Check `mpg123` is installed: `sudo apt-get install mpg123` |
+| Camera not detected | Enable camera: `sudo raspi-config` → Interface Options → Camera |
+| MQTT connection failed | Verify broker IP, port, and credentials in `.env.iot` |
+| Servo jittering | Use external 5V power supply for servo |
+
+### Testing Commands
+
+```bash
+# Test female voice
+python3 voice/femaleTalk.py
+
+# Test male voice
+python3 voice/maleTalk.py
+
+# Test both voices
+python3 voice/testTalk.py
+```
+
+---
+
+## �📜 License
+
+MIT License - Feel free to use and modify for your projects.
 
 ---
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
 
 ---
 
 *Built with ❤️ for secure chemical storage management*
+
+**Last Updated:** January 2026

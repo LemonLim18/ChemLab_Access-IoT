@@ -1,10 +1,9 @@
 // Chemical Lab Storage Container System - Main Application
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import gsap from 'gsap';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Swal from 'sweetalert2';
 import { 
-  Shield, 
+  FlaskConicalIcon, 
   History, 
   Users, 
   Settings, 
@@ -22,7 +21,7 @@ import {
   LogOut,
   Plus,
   Trash2,
-  X
+  X,
 } from 'lucide-react';
 
 import type { 
@@ -38,65 +37,7 @@ import type { TabType } from '../constants';
 import { supabase } from './lib/supabaseClient';
 
 // ========== COMPONENTS ==========
-const HoverModal: React.FC<{
-  title: string;
-  children: React.ReactNode;
-  content: React.ReactNode;
-}> = ({ title, children, content }) => {
-  const modalRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const handleMouseEnter = () => {
-    if (modalRef.current) {
-      gsap.to(modalRef.current, { 
-        opacity: 1, 
-        y: 0, 
-        scale: 1, 
-        duration: 0.3, 
-        ease: "back.out(1.7)",
-        display: "block"
-      });
-    }
-  };
-
-  const handleMouseLeave = () => {
-    if (modalRef.current) {
-      gsap.to(modalRef.current, { 
-        opacity: 0, 
-        y: -10, // Move UP when disappearing
-        scale: 0.95, 
-        duration: 0.2, 
-        display: "none"
-      });
-    }
-  };
-
-  return (
-    <div 
-      ref={containerRef}
-      className="relative group"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      {children}
-      {/* Modal positioned at BOTTOM centered */}
-      <div 
-        ref={modalRef}
-        className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-64 hidden opacity-0 transform -translate-y-2 scale-95 z-50 pointer-events-none"
-      >
-        <div className="bg-slate-800/90 backdrop-blur-xl border border-slate-600 rounded-xl p-4 shadow-2xl relative">
-           {/* Arrow pointing UP to the element */}
-          <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-slate-800/90 rotate-45 border-l border-t border-slate-600"></div>
-          
-          <h4 className="text-sm font-semibold text-cyan-400 mb-2 border-b border-white/10 pb-2">{title}</h4>
-          <div className="text-sm text-slate-300">
-            {content}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+// HoverModal removed as it is no longer used
 
 
 
@@ -139,6 +80,47 @@ const App: React.FC = () => {
   // Face registration status for current user
   const [userHasFace, setUserHasFace] = useState(false);
   const [userFaceData, setUserFaceData] = useState<any>(null);
+  
+  // Auto-lock countdown
+  const [autoLockCountdown, setAutoLockCountdown] = useState<number | null>(null);
+  
+  const notifRef = useRef<HTMLDivElement>(null);
+  const bellRef = useRef<HTMLButtonElement>(null);
+
+  // Close notifications on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isNotifOpen && 
+        notifRef.current && 
+        !notifRef.current.contains(event.target as Node) &&
+        bellRef.current && 
+        !bellRef.current.contains(event.target as Node)
+      ) {
+        setIsNotifOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isNotifOpen]);
+  
+  // Auto-lock countdown timer
+  useEffect(() => {
+    if (autoLockCountdown === null || autoLockCountdown <= 0) return;
+    
+    const interval = setInterval(() => {
+      setAutoLockCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [autoLockCountdown]);
   
   // ========== TOAST MANAGEMENT ==========
   const addToast = useCallback((toast: { title: string, message: string, type?: string }) => {
@@ -270,6 +252,17 @@ const App: React.FC = () => {
       switch (message.type) {
         case 'state_update':
           setStorageState(message.data);
+          
+          // Handle auto-lock countdown
+          if (message.data.auto_lock_at && !message.data.door_locked) {
+            const lockTime = new Date(message.data.auto_lock_at).getTime();
+            const now = Date.now();
+            const remaining = Math.max(0, Math.floor((lockTime - now) / 1000));
+            setAutoLockCountdown(remaining > 0 ? remaining : null);
+          } else {
+            setAutoLockCountdown(null);
+          }
+          
           // Track temperature history for chart
           setTempHistory(prev => {
             const now = new Date();
@@ -693,6 +686,18 @@ const App: React.FC = () => {
     });
     
     if (formValues) {
+      // Show loading indicator
+      Swal.fire({
+        title: 'Processing...',
+        html: '<p class="text-slate-400">Registering your face. Please wait...</p>',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+      
       try {
         const res = await fetch(`http://${window.location.hostname}:8000/api/register-face`, {
           method: 'POST',
@@ -704,18 +709,36 @@ const App: React.FC = () => {
           })
         });
         
+        Swal.close(); // Close loading indicator
+        
         if (res.ok) {
           const data = await res.json();
           setUserHasFace(true);
           setUserFaceData(data.user);
           setRegisteredUsers(prev => [...prev, data.user]);
-          addToast({ title: 'Face Registered!', message: 'You can now unlock the door with your face.', type: 'success' });
+          Swal.fire({
+            icon: 'success',
+            title: 'Face Registered!',
+            text: 'You can now unlock the door with your face.',
+            confirmButtonColor: '#06b6d4'
+          });
         } else {
           const error = await res.json();
-          addToast({ title: 'Registration Failed', message: error.detail, type: 'error' });
+          Swal.fire({
+            icon: 'error',
+            title: 'Registration Failed',
+            text: error.detail || 'Could not register your face.',
+            confirmButtonColor: '#ef4444'
+          });
         }
       } catch (error) {
-        addToast({ title: 'Error', message: 'Failed to register face', type: 'error' });
+        Swal.close();
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: 'Failed to register face. Please try again.',
+          confirmButtonColor: '#ef4444'
+        });
       }
     }
   };
@@ -770,7 +793,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="animate-pulse flex flex-col items-center gap-4">
-          <Shield className="w-16 h-16 text-cyan-500" />
+          <FlaskConicalIcon className="w-16 h-16 text-cyan-500" />
           <p className="text-cyan-300">Loading ChemLab Access Control...</p>
         </div>
       </div>
@@ -784,7 +807,7 @@ const App: React.FC = () => {
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
             <div className="inline-flex p-4 rounded-2xl bg-gradient-to-br from-cyan-500 to-teal-600 shadow-lg shadow-cyan-500/20 mb-4">
-              <Shield className="w-12 h-12 text-white" />
+              <FlaskConicalIcon className="w-12 h-12 text-white" />
             </div>
             <h1 className="text-3xl font-bold text-white mb-2">ChemLab Access</h1>
             <p className="text-slate-400">Secure Storage Container System</p>
@@ -894,35 +917,36 @@ const App: React.FC = () => {
       
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur-xl bg-slate-900/80 border-b border-slate-700/50">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 shadow-lg shadow-cyan-500/20">
-              <Shield className="w-6 h-6 text-white" />
+            <div className="p-2 rounded-lg sm:rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 shadow-lg shadow-cyan-500/20">
+              <FlaskConicalIcon className="w-7 h-7 text-white" />
             </div>
-            <div>
+            <div className="flex flex-col gap-0.5">
               <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-teal-300 bg-clip-text text-transparent">
-                ChemLab Access
+                ChemLab
               </h1>
-              <p className="text-xs text-slate-400">Storage Container System</p>
+              <p className="text-[10px] sm:text-xs text-slate-400">Storage Container System</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            {/* Door Status Badge */}
+          <div className="flex items-center gap-3 md:gap-7">
+            {/* Door Status Badge - Icon only on mobile */}
             <div className={`
-              flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium
+              flex items-center gap-2 px-2 sm:px-3 py-2 rounded-full text-xs sm:text-sm font-medium
               ${storageState.door_locked 
                 ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
                 : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}
             `}>
               {storageState.door_locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-              {storageState.door_locked ? 'Secured' : 'Unlocked'}
+              <span className="inline">{storageState.door_locked ? 'Secured' : 'Unlocked'}</span>
             </div>
             
             {/* Notifications Toggle */}
             <button 
+              ref={bellRef}
               onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className={`relative p-2 rounded-xl transition ${isNotifOpen ? 'bg-slate-700 text-cyan-400' : 'hover:bg-slate-700/50 text-slate-400'}`}
+              className={`relative p-2 rounded-xl transition ${isNotifOpen ? 'bg-white text-cyan-400 z-50' : 'hover:bg-white/50 text-white'}`}
             >
               <Bell className="w-5 h-5" />
               {notifications.filter(n => !n.isRead).length > 0 && (
@@ -934,9 +958,12 @@ const App: React.FC = () => {
             
             {/* Notification Center Panel */}
             {isNotifOpen && (
-              <div className="absolute top-16 right-4 w-96 max-h-[80vh] bg-slate-800/95 backdrop-blur-xl border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-50 animate-slide-in-top">
-                <div className="p-4 border-b border-slate-700/50 flex justify-between items-center bg-slate-900/50">
-                  <h3 className="font-semibold text-white flex items-center gap-2">
+              <div 
+                ref={notifRef}
+                className="absolute top-16 right-4 w-96 max-w-[calc(100vw-2rem)] max-h-[80vh] bg-slate-800/95 backdrop-blur-xl border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-50 animate-slide-in-top"
+              >
+                  <div className="p-5 border-b border-slate-700/50 flex justify-between items-center bg-slate-900/50">
+                    <h3 className="font-semibold text-white flex items-center gap-2">
                     <Bell className="w-4 h-4 text-cyan-400" />
                     Notifications
                   </h3>
@@ -958,7 +985,7 @@ const App: React.FC = () => {
                     </button>
                   </div>
                 </div>
-                <div className="overflow-y-auto p-2 space-y-2 flex-1 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent">
+                <div className="overflow-y-auto p-3 space-y-3 flex-1 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent">
                   {notifications.length === 0 ? (
                     <div className="p-8 text-center text-slate-500">
                       <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -966,7 +993,7 @@ const App: React.FC = () => {
                     </div>
                   ) : (
                     notifications.map(notif => (
-                      <div key={notif.id} className={`p-3 rounded-xl border transition-all relative group ${notif.isRead ? 'bg-slate-800/50 border-transparent opacity-70' : 'bg-slate-700/30 border-slate-600'}`}>
+                      <div key={notif.id} className={`p-4 rounded-xl border transition-all relative group ${notif.isRead ? 'bg-slate-800/50 border-transparent opacity-70' : 'bg-slate-700/30 border-slate-600'}`}>
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
@@ -977,7 +1004,7 @@ const App: React.FC = () => {
                         >
                           <X className="w-3 h-3" />
                         </button>
-                        <div className="flex justify-between items-start mb-1 pr-6">
+                        <div className="flex justify-between items-start mb-2 pr-6">
                           <h4 className={`text-sm font-medium ${notif.type === 'error' ? 'text-red-400' : notif.type === 'warning' ? 'text-amber-400' : 'text-cyan-400'}`}>{notif.title}</h4>
                           <span className="text-[10px] text-slate-500 whitespace-nowrap ml-2">{timeAgo(notif.timestamp)}</span>
                         </div>
@@ -995,180 +1022,242 @@ const App: React.FC = () => {
                 <User className="w-4 h-4 text-white" />
               </div>
               <span className="text-sm text-slate-300 hidden sm:block">{userName || 'Admin'}</span>
-              <button onClick={handleSignOut} className="p-2 rounded-lg hover:bg-slate-700/50" title="Sign Out">
-                <LogOut className="w-4 h-4 text-slate-400" />
+              <button onClick={handleSignOut} className="ml-2 md:ml-4 p-2 md:p-3 rounded-full border border-red-400/50 hover:bg-red-600/20 hover:border-red-400 transition" title="Sign Out">
+                <LogOut className="w-4 h-4 text-red-400" />
               </button>
             </div>
           </div>
         </div>
       </header>
       
-      {/* Tab Navigation */}
-      <nav className="sticky top-16 z-30 backdrop-blur-xl bg-slate-900/60 border-b border-slate-700/30">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1">
-            {TABS.map(tab => (
-              <button
-                key={tab}
-                onClick={() => handleTabChange(tab)}
-                className={`
-                  flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all
-                  ${activeTab === tab 
-                    ? 'text-cyan-400 border-b-2 border-cyan-400' 
-                    : 'text-slate-400 hover:text-slate-200'}
-                `}
-              >
-                {tab === 'dashboard' && <Shield className="w-4 h-4" />}
-                {tab === 'access-log' && <History className="w-4 h-4" />}
-                {tab === 'users' && <Users className="w-4 h-4" />}
-                {tab === 'settings' && <Settings className="w-4 h-4" />}
-                <span className="capitalize">{tab.replace('-', ' ')}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </nav>
-      
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      {/* Main Content - Added pb-20 for bottom nav spacing */}
+      <main className="max-w-7xl mx-auto px-4 py-6 pb-24">
         {activeTab === 'dashboard' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left Column - Status Cards */}
             <div className="lg:col-span-2 space-y-6">
-              {/* Environment Monitoring - Responsive Grid: 1 col mobile, 3 cols desktop */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Environment Monitoring - Responsive Grid: 1 col mobile, 2 cols tablet (Door spans full width) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Temperature */}
-                <HoverModal
-                  title="Temperature Details"
-                  content={
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-xs"><span>Safe Min:</span> <span className="text-white">{DEFAULT_THRESHOLDS.temperature_min}°C</span></div>
-                      <div className="flex justify-between text-xs"><span>Safe Max:</span> <span className="text-white">{DEFAULT_THRESHOLDS.temperature_max}°C</span></div>
-                      <div className="pt-2 border-t border-white/10 text-xs text-slate-400">Updated: {formatTime(storageState.lastTemperatureUpdate)}</div>
+                <div className={`
+                  p-5 rounded-2xl border backdrop-blur-md transition-all duration-300
+                  ${getTempStatus() === 'danger' 
+                    ? 'bg-red-500/10 border-red-500/30 shadow-[0_0_30px_-10px_rgba(239,68,68,0.3)]' 
+                    : 'bg-slate-800/50 border-slate-700/50 hover:border-cyan-500/30'}
+                `}>
+                  <div className="flex items-center gap-4 mb-2">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-orange-500 to-red-500 shadow-lg shadow-orange-500/20">
+                      <Thermometer className="w-6 h-6 text-white" />
                     </div>
-                  }
-                >
-                  <div className={`
-                    p-5 rounded-2xl border backdrop-blur-md transition-all duration-300
-                    ${getTempStatus() === 'danger' 
-                      ? 'bg-red-500/10 border-red-500/30 shadow-[0_0_30px_-10px_rgba(239,68,68,0.3)]' 
-                      : 'bg-slate-800/50 border-slate-700/50 hover:border-cyan-500/30'}
-                  `}>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-500 to-red-500 shadow-lg shadow-orange-500/20">
-                        <Thermometer className="w-5 h-5 text-white" />
-                      </div>
-                      {getTempStatus() === 'danger' && (
-                        <AlertTriangle className="w-4 h-4 text-red-400 animate-pulse" />
-                      )}
+                    
+                    <div className="flex flex-col">
+                      <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Temperature</span>
+                      <span className="text-2xl font-bold font-mono text-white leading-none mt-1">{storageState.temperature.toFixed(1)}°C</span>
                     </div>
-                    <p className="text-2xl font-bold font-mono">{storageState.temperature.toFixed(1)}°C</p>
-                    <p className="text-xs text-slate-400 mt-1">Temperature</p>
+
+                    <div className={`ml-auto px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                      getTempStatus() === 'danger' 
+                        ? 'bg-red-500/20 text-red-300 border-red-500/30' 
+                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    }`}>
+                      {getTempStatus() === 'danger' ? 'Critical' : 'Optimal'}
+                    </div>
                   </div>
-                </HoverModal>
+                  
+                  {/* Inline Threshold Info */}
+                  <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">Safe Range:</span>
+                      <span className="text-slate-300">{thresholds.temperature_min}°C - {thresholds.temperature_max}°C</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Updated: {formatTime(storageState.lastTemperatureUpdate)}
+                    </div>
+                  </div>
+                </div>
                 
                 {/* Humidity */}
-                <HoverModal
-                  title="Humidity Details"
-                  content={
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-xs"><span>Safe Min:</span> <span className="text-white">{DEFAULT_THRESHOLDS.humidity_min}%</span></div>
-                      <div className="flex justify-between text-xs"><span>Safe Max:</span> <span className="text-white">{DEFAULT_THRESHOLDS.humidity_max}%</span></div>
-                      <div className="pt-2 border-t border-white/10 text-xs text-slate-400">Updated: {formatTime(storageState.lastHumidityUpdate)}</div>
+                <div className={`
+                  p-5 rounded-2xl border backdrop-blur-md transition-all duration-300
+                  ${getHumidityStatus() === 'danger' 
+                    ? 'bg-red-500/10 border-red-500/30 shadow-[0_0_30px_-10px_rgba(239,68,68,0.3)]' 
+                    : 'bg-slate-800/50 border-slate-700/50 hover:border-cyan-500/30'}
+                `}>
+                  <div className="flex items-center gap-4 mb-2">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 shadow-lg shadow-blue-500/20">
+                      <Droplets className="w-6 h-6 text-white" />
                     </div>
-                  }
-                >
-                  <div className={`
-                    p-5 rounded-2xl border backdrop-blur-md transition-all duration-300
-                    ${getHumidityStatus() === 'danger' 
-                      ? 'bg-red-500/10 border-red-500/30 shadow-[0_0_30px_-10px_rgba(239,68,68,0.3)]' 
-                      : 'bg-slate-800/50 border-slate-700/50 hover:border-cyan-500/30'}
-                  `}>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 shadow-lg shadow-blue-500/20">
-                        <Droplets className="w-5 h-5 text-white" />
-                      </div>
-                      {getHumidityStatus() === 'danger' && (
-                        <AlertTriangle className="w-4 h-4 text-red-400 animate-pulse" />
-                      )}
+                    
+                    <div className="flex flex-col">
+                      <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Humidity</span>
+                      <span className="text-2xl font-bold font-mono text-white leading-none mt-1">{storageState.humidity}%</span>
                     </div>
-                    <p className="text-2xl font-bold font-mono">{storageState.humidity}%</p>
-                    <p className="text-xs text-slate-400 mt-1">Humidity</p>
+
+                     {/* Status Badge */}
+                    <div className={`ml-auto px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                      getHumidityStatus() === 'danger' 
+                        ? 'bg-red-500/20 text-red-300 border-red-500/30' 
+                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    }`}>
+                      {getHumidityStatus() === 'danger' ? 'Critical' : 'Optimal'}
+                    </div>
                   </div>
-                </HoverModal>
+                  
+                  {/* Inline Threshold Info */}
+                  <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">Safe Range:</span>
+                      <span className="text-slate-300">{thresholds.humidity_min}% - {thresholds.humidity_max}%</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Updated: {formatTime(storageState.lastHumidityUpdate)}
+                    </div>
+                  </div>
+                </div>
+
+
+
 
                 {/* Door Status */}
-                <div className={`p-5 rounded-2xl border backdrop-blur-md ${
-                  storageState.door_locked 
+                <div className={`
+                  md:col-span-2
+                  p-5 rounded-2xl border backdrop-blur-md transition-all duration-300
+                  ${storageState.door_locked 
                     ? 'bg-green-500/10 border-green-500/30' 
-                    : 'bg-amber-500/10 border-amber-500/30'
-                }`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className={`p-2.5 rounded-xl ${storageState.door_locked ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 'bg-gradient-to-br from-amber-500 to-orange-500'} shadow-lg`}>
-                      {storageState.door_locked ? <Lock className="w-5 h-5 text-white" /> : <Unlock className="w-5 h-5 text-white" />}
+                    : 'bg-amber-500/10 border-amber-500/30'}
+                `}>
+                  <div className="flex items-center gap-4 mb-2">
+                    <div className={`p-3 rounded-xl ${storageState.door_locked ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 'bg-gradient-to-br from-amber-500 to-orange-500'} shadow-lg`}>
+                      {storageState.door_locked ? <Lock className="w-6 h-6 text-white" /> : <Unlock className="w-6 h-6 text-white" />}
+                    </div>
+                    
+                    <div className="flex flex-col">
+                      <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Door Status</span>
+                      <span className={`text-2xl font-bold font-mono leading-none mt-1 ${storageState.door_locked ? 'text-green-400' : 'text-amber-400'}`}>
+                        {storageState.door_locked ? 'CLOSED' : 'OPEN'}
+                      </span>
+                      {/* Auto-lock Countdown */}
+                      {autoLockCountdown !== null && autoLockCountdown > 0 && (
+                        <span className="text-sm text-amber-300 mt-1 animate-pulse">
+                          Auto-lock in {autoLockCountdown}s
+                        </span>
+                      )}
+                    </div>
+
+                    <div className={`ml-auto px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                      storageState.door_locked 
+                        ? 'bg-green-500/20 text-green-300 border-green-500/30' 
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    }`}>
+                      {storageState.door_locked ? 'Secure' : 'Unlocked'}
                     </div>
                   </div>
-                  <p className={`text-2xl font-bold ${storageState.door_locked ? 'text-green-400' : 'text-amber-400'}`}>
-                    {storageState.door_locked ? 'CLOSED' : 'OPEN'}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">Door Status</p>
+                  
+                  {/* Inline Status Info */}
+                  <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400">Policy:</span>
+                      <span className="text-slate-300">Auto-lock 15s</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {storageState.door_locked && storageState.door_closed_since 
+                        ? `Secured for ${timeAgo(storageState.door_closed_since).replace(' ago', '')}` 
+                        : "Please close door"
+                      }
+                    </div>
+                  </div>
                 </div>
+
               </div>
               
-              {/* Environment Trend Chart - Full Width */}
-              <div className="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/50 backdrop-blur-md">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <Thermometer className="w-5 h-5 text-orange-400" />
-                  Environment Trend
-                </h3>
-                {tempHistory.length > 1 ? (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <LineChart data={tempHistory}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis 
-                        dataKey="time" 
-                        tick={{ fill: '#94a3b8', fontSize: 10 }} 
-                        tickFormatter={(_, index) => `${index}m`}
-                      />
-                      <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={['auto', 'auto']} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: '8px' }}
-                        labelStyle={{ color: '#94a3b8' }}
-                        labelFormatter={(label) => `Time: ${label}`}
-                      />
-                      <Line type="monotone" dataKey="temp" stroke="#f97316" strokeWidth={2} dot={false} name="Temp (°C)" />
-                      <Line type="monotone" dataKey="humidity" stroke="#06b6d4" strokeWidth={2} dot={false} name="Humidity (%)" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-44 flex items-center justify-center text-slate-500 text-sm">
-                    Waiting for data...
-                  </div>
-                )}
+              {/* Environment Trend Charts - Split */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Temperature Chart */}
+                <div className="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/50 backdrop-blur-md">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Thermometer className="w-5 h-5 text-orange-400" />
+                    Temperature History
+                  </h3>
+                  {tempHistory.length > 1 ? (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <LineChart data={tempHistory}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                        <XAxis 
+                          dataKey="time" 
+                          tick={{ fill: '#94a3b8', fontSize: 10 }} 
+                          minTickGap={30}
+                        />
+                        <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={['auto', 'auto']} unit="°C" />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: '8px' }}
+                          labelStyle={{ color: '#94a3b8' }}
+                        />
+                        <Line type="monotone" dataKey="temp" stroke="#f97316" strokeWidth={2} dot={false} name="Temp" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-44 flex items-center justify-center text-slate-500 text-sm">
+                      Waiting for data...
+                    </div>
+                  )}
+                </div>
+
+                {/* Humidity Chart */}
+                <div className="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/50 backdrop-blur-md">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Droplets className="w-5 h-5 text-cyan-400" />
+                    Humidity History
+                  </h3>
+                  {tempHistory.length > 1 ? (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <LineChart data={tempHistory}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                        <XAxis 
+                          dataKey="time" 
+                          tick={{ fill: '#94a3b8', fontSize: 10 }} 
+                          minTickGap={30}
+                        />
+                        <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[0, 100]} unit="%" />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: '8px' }}
+                          labelStyle={{ color: '#94a3b8' }}
+                        />
+                        <Line type="monotone" dataKey="humidity" stroke="#06b6d4" strokeWidth={2} dot={false} name="Humidity" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-44 flex items-center justify-center text-slate-500 text-sm">
+                      Waiting for data...
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <HoverModal
-                title="Security Status"
-                content={
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs"><span>Auto-lock:</span> <span className="text-white">10 seconds</span></div>
-                    <div className="flex justify-between text-xs"><span>Reminder:</span> <span className="text-white">2 minutes</span></div>
-                    <div className="pt-2 border-t border-white/10 text-xs text-slate-400">
+              <div className="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/50 backdrop-blur-md hover:border-cyan-500/30 transition-all duration-300">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  {storageState.door_locked ? <Lock className="w-5 h-5 text-green-400" /> : <Unlock className="w-5 h-5 text-amber-400" />}
+                  Door Control
+                </h3>
+                
+                {/* Security Status Info */}
+                <div className="mb-4 p-3 rounded-xl bg-slate-700/30 space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Auto-lock:</span>
+                    <span className="text-slate-300">15 seconds</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Status:</span>
+                    <span className={storageState.door_locked ? "text-green-400" : "text-amber-400"}>
                       {storageState.door_locked && storageState.door_closed_since 
-                        ? `Closed for ${timeAgo(storageState.door_closed_since).replace(' ago', '')}` 
+                        ? `Secured for ${timeAgo(storageState.door_closed_since).replace(' ago', '')}` 
                         : storageState.door_locked 
                           ? "Door secured"
                           : "Door currently open"
                       }
-                    </div>
+                    </span>
                   </div>
-                }
-              >
-                <div className="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/50 backdrop-blur-md hover:border-cyan-500/30 transition-all duration-300">
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    {storageState.door_locked ? <Lock className="w-5 h-5 text-green-400" /> : <Unlock className="w-5 h-5 text-amber-400" />}
-                    Door Control
-                  </h3>
+                </div>
+                
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     onClick={handleLock}
@@ -1206,8 +1295,8 @@ const App: React.FC = () => {
                     <p className="text-xs text-slate-500">{formatTime(storageState.last_access_time)}</p>
                   </div>
                 )}
-                </div>
-              </HoverModal>
+              </div>
+
               
               {/* Recent Access Log */}
               <div className="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/50 backdrop-blur-md">
@@ -1269,7 +1358,7 @@ const App: React.FC = () => {
                   onClick={handleCapture}
                   disabled={isCapturing}
                   className={`
-                    w-full flex items-center justify-center gap-2 py-4 rounded-xl font-semibold text-lg transition-all
+                    w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-md transition-all
                     ${isCapturing 
                       ? 'bg-slate-700 text-slate-400 cursor-wait' 
                       : 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white hover:shadow-lg hover:shadow-cyan-500/30'}
@@ -1297,7 +1386,7 @@ const App: React.FC = () => {
                 </h3>
                 <div className="space-y-2">
                   {registeredUsers.slice(0, 4).map(user => (
-                    <div key={user.id} className="flex items-center gap-3 p-2 rounded-lg bg-slate-700/30">
+                    <div key={user.id} className="flex items-center gap-3 p-2 md:py-5 md:px-5 rounded-full bg-slate-700/30 hover:bg-slate-600/30 transition">
                       <img 
                         src={user.face_image_url} 
                         alt={user.name}
@@ -1636,13 +1725,39 @@ const App: React.FC = () => {
         )}
       </main>
       
-      {/* Footer */}
-      <footer className="border-t border-slate-700/30 mt-12 py-6">
+      {/* Footer - Hidden on mobile due to bottom nav */}
+      <footer className="hidden md:block border-t border-slate-700/30 mt-12 py-6 mb-20">
         <div className="max-w-7xl mx-auto px-4 text-center text-sm text-slate-500">
           <p>ChemLab Access Control System • Powered by Face Recognition AI</p>
           <p className="text-xs mt-1">Last sync: {formatTime(storageState.lastUpdated)}</p>
         </div>
       </footer>
+      
+      {/* Bottom Navigation Bar */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 backdrop-blur-xl bg-slate-900/95 border-t border-slate-700/50 safe-area-pb">
+        <div className="max-w-lg md:max-w-7xl mx-auto px-2">
+          <div className="flex justify-around items-center py-2">
+            {TABS.map(tab => (
+              <button
+                key={tab}
+                onClick={() => handleTabChange(tab)}
+                className={`
+                  flex flex-col items-center justify-center gap-1 px-4 py-2 rounded-xl transition-all min-w-[70px]
+                  ${activeTab === tab 
+                    ? 'text-cyan-400 bg-cyan-500/10' 
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'}
+                `}
+              >
+                {tab === 'dashboard' && <FlaskConicalIcon className="w-5 h-5" />}
+                {tab === 'access-log' && <History className="w-5 h-5" />}
+                {tab === 'users' && <Users className="w-5 h-5" />}
+                {tab === 'settings' && <Settings className="w-5 h-5" />}
+                <span className="text-[10px] font-medium capitalize">{tab.replace('-', ' ')}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
       
       <style>{`
         @keyframes slide-in {

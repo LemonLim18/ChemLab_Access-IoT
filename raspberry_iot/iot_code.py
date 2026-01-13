@@ -3,7 +3,7 @@
 # Components: Camera, DHT11, IR Sensor, Button, Red LED, Buzzer, Servo Motor
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import json
 import threading
@@ -70,7 +70,7 @@ SERVO_PIN = 12              # GPIO 12 - Physical Pin 32 (PWM0)
 DHT_INTERVAL = float(os.getenv("DHT_INTERVAL", 4.0))
 TELEMETRY_INTERVAL = float(os.getenv("TELEMETRY_INTERVAL", 30))
 BUTTON_DEBOUNCE = float(os.getenv("BUTTON_DEBOUNCE", 0.3))
-DOOR_OPEN_REMINDER_INTERVAL = 120  # 2 minutes - trigger alert if door not closed
+DOOR_OPEN_REMINDER_INTERVAL = 15  # 15 seconds - trigger nag if door not closed per assignment
 
 # ========== LOCAL STORAGE ==========
 LOCAL_IMAGE_DIR = os.getenv("LOCAL_IMAGE_DIR", "/tmp/chemlab_snapshots")
@@ -86,8 +86,42 @@ door_locked = True  # True = servo at 0° (locked)
 last_access_time = None
 last_access_by = None
 door_open_start_time = None  # Track when door was opened
+door_was_opened = False  # Track if door was physically opened after unlock
+unlock_source = None  # Track unlock source: 'authorized', 'remote', or None
 alert_active = threading.Event()  # Prevent overlapping alerts
 interrupt_error = False  # Track if GPIO interrupts failed
+lock_timer = None  # Global timer object for auto-lock
+timer_lock = threading.Lock() # Lock for thread-safe timer access
+
+# ========== VOICE SYSTEM ==========
+# Import voice modules - Female for friendly, Male for warnings/security
+from voice.maleTalk import speak as _speak_male_sync
+from voice.femaleTalk import speak_cute as _speak_female_sync
+
+def speak_male(text):
+    """
+    Authoritative Male Voice - for warnings, intrusions, denials.
+    Runs in background thread.
+    """
+    def run():
+        try:
+            _speak_male_sync(text)
+        except Exception as e:
+            print(f"[VOICE-MALE] Error: {e}")
+    threading.Thread(target=run, daemon=True).start()
+
+def speak_female(text):
+    """
+    Friendly Female Voice - for greetings, confirmations, reminders.
+    Runs in background thread.
+    """
+    def run():
+        try:
+            _speak_female_sync(text)
+        except Exception as e:
+            print(f"[VOICE-FEMALE] Error: {e}")
+    threading.Thread(target=run, daemon=True).start()
+
 
 # ========== GPIO SETUP ==========
 # Clean up any previous states before starting
@@ -132,25 +166,89 @@ def set_servo_angle(angle):
     GPIO.output(SERVO_PIN, False)
     servo_pwm.ChangeDutyCycle(0)
 
-def lock_door():
-    """Lock the door (servo to 0 degrees)."""
-    global door_locked
+def lock_door(force=False):
+    """
+    Lock the door (servo to 0 degrees).
+    Safety: Only locks if the IR sensor detects the door is closed (IR LOW).
+    """
+    global door_locked, unlock_source
+    
+    # Check if door is physically closed (IR LOW = Closed)
+    is_closed = GPIO.input(IR_PIN) == GPIO.LOW
+    
+    if not is_closed and not force:
+        print("[SERVO] Cannot lock! Door is still open.")
+        publish_alert("door_open", "Auto-lock skipped: Door is still open")
+        return False
+
     print("[SERVO] Locking door...")
     set_servo_angle(0)
     door_locked = True
+    unlock_source = None  # Clear unlock authorization
     publish_status("locked")
+    
+    # Clean up timer reference if this was a timer-based lock
+    with timer_lock:
+        lock_timer = None
+        
+    return True
 
-def unlock_door():
-    """Unlock the door (servo to 90 degrees)."""
-    global door_locked, last_access_time
+def unlock_door(auto_lock_interval=15.0, source='remote'):
+    """
+    Unlock the door (servo to 90 degrees).
+    auto_lock_interval: Seconds to wait before locking. Set to 0 to disable.
+    source: 'authorized' (face recognition) or 'remote' (dashboard control)
+    """
+    global door_locked, last_access_time, lock_timer, door_was_opened, unlock_source
+    
+    # Cancel any existing auto-lock timer to prevent race conditions
+    with timer_lock:
+        if lock_timer:
+            lock_timer.cancel()
+            lock_timer = None
+    
+    # Reset the "door was opened" flag for this access session
+    door_was_opened = False
+    unlock_source = source  # Track how door was unlocked
+            
     print("[SERVO] Unlocking door...")
     set_servo_angle(90)
     door_locked = False
     last_access_time = datetime.now()
-    publish_status("unlocked")
+    # Note: Voice announcements are handled by the caller (e.g., "Access Granted. Welcome, {name}")
+    
+    # Calculate auto-lock time for countdown display
+    auto_lock_at = datetime.now() + timedelta(seconds=auto_lock_interval) if auto_lock_interval > 0 else None
+    publish_status("unlocked", auto_lock_at)
+    
+    # Start auto-lock timer if requested
+    if auto_lock_interval > 0:
+        with timer_lock:
+            lock_timer = threading.Timer(auto_lock_interval, handle_auto_lock_timeout)
+            lock_timer.start()
+            print(f"[SERVO] Auto-lock scheduled in {auto_lock_interval}s")
+
+def handle_auto_lock_timeout():
+    """
+    Called when auto-lock timer fires.
+    Per assignment: If door was never opened, just quietly lock.
+    If door is still open, the nag loop in sensor_loop handles it.
+    """
+    global door_was_opened
+    
+    if not door_was_opened:
+        # User never opened the door - quietly lock
+        speak_female("Door closed.")
+        print("[TIMER] Door never opened - quietly locking.")
+        lock_door()
+    else:
+        # Door was opened but hasn't been closed yet
+        # The nag loop in sensor_loop will handle this
+        print("[TIMER] Door was opened but not closed - nag loop active.")
+
 
 # ========== ALERT SYSTEM ==========
-def trigger_alert_pattern():
+def trigger_alert_pattern(final_speak=None):
     """
     Trigger alert: LED flashes while buzzer plays loud siren tone.
     Uses PWM for a proper audible alarm sound.
@@ -181,6 +279,8 @@ def trigger_alert_pattern():
         buzzer_pwm.ChangeDutyCycle(0)
         alert_active.clear()
         print("[ALERT] Siren complete.")
+        if final_speak:
+            speak_male(final_speak)
 
 
 
@@ -219,7 +319,8 @@ def on_mqtt_message(client, userdata, msg):
             elif command == "lock":
                 executor.submit(lock_door)
             elif command == "unlock":
-                executor.submit(unlock_door)
+                # Remote unlock from dashboard (15s auto-lock)
+                executor.submit(unlock_door, 15.0, 'remote')
             elif command == "alert":
                 executor.submit(trigger_alert_pattern)
                 
@@ -227,17 +328,32 @@ def on_mqtt_message(client, userdata, msg):
             # Face recognition response from backend
             authorized = payload.get("authorized", False)
             person_name = payload.get("name", "Unknown")
+            reason = payload.get("reason", "unauthorized")
             
             if authorized:
                 print(f"[ACCESS] GRANTED for: {person_name}")
                 last_access_by = person_name
-                executor.submit(unlock_door)
-                # Auto-lock after 10 seconds
-                threading.Timer(10.0, lock_door).start()
+                speak_female(f"Access Granted. Welcome, {person_name}")
+                executor.submit(unlock_door, 15.0, 'authorized')  # Authorized face recognition unlock
             else:
-                print(f"[ACCESS] DENIED for: {person_name}")
-                executor.submit(trigger_alert_pattern)
-                publish_intrusion("Unauthorized face detected")
+                print(f"[ACCESS] DENIED - Reason: {reason}, Name: {person_name}")
+                
+                # Different voice messages based on reason
+                if reason == "no_face":
+                    speak_male("No face detected. Please look at the camera and try again.")
+                    # No intrusion alert for "no face" - just a positioning issue
+                elif reason == "unauthorized":
+                    speak_male("Access Denied. You are not authorized to enter this area.")
+                    executor.submit(trigger_alert_pattern, "Alert! Intrusion Detected")
+                    publish_intrusion("Unauthorized face detected")
+                elif reason == "error":
+                    speak_male("System error. Please contact an administrator.")
+                else:
+                    # Fallback for unknown reasons
+                    speak_male("Access Denied. Please try again later.")
+                    executor.submit(trigger_alert_pattern, "Alert! Intrusion Detected")
+                    publish_intrusion("Unknown access denial")
+
                 
     except Exception as e:
         print(f"[MQTT] Error processing message: {e}")
@@ -293,13 +409,14 @@ def publish_intrusion(message):
     }
     client.publish(INTRUSION_TOPIC, json.dumps(payload), qos=1)
 
-def publish_status(state):
-    """Publish door lock status."""
+def publish_status(state, auto_lock_at=None):
+    """Publish door lock status with optional auto-lock countdown."""
     payload = {
         "device": DEVICE_ID,
         "door_state": state,
         "last_access_by": last_access_by,
         "last_access_time": last_access_time.strftime("%Y-%m-%d %H:%M:%S") if last_access_time else None,
+        "auto_lock_at": auto_lock_at.strftime("%Y-%m-%d %H:%M:%S") if auto_lock_at else None,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     client.publish(STATUS_TOPIC, json.dumps(payload), qos=1, retain=True)
@@ -484,29 +601,45 @@ def sensor_loop():
             if not ir_detected and door_locked:
                 # Obstacle removed but door is locked - possible intrusion attempt
                 print("[IR] Possible intrusion detected - object removed while locked!")
-                publish_intrusion("IR sensor triggered while door locked")
-                executor.submit(trigger_alert_pattern)
+                publish_intrusion("Door is Loose. Intrusion Detected.")
+                executor.submit(trigger_alert_pattern, "Alert! Intrusion Detected")
             elif ir_detected and not door_locked:
-                # Door closed after being unlocked
+                # Door closed after being unlocked - LOCK IMMEDIATELY
                 door_open_start_time = None
-                print("[IR] Door object detected - resetting reminder timer")
+                print("[IR] Door closure detected - locking immediately for security")
+                # Cancel the timer since we are locking now
+                with timer_lock:
+                    if lock_timer:
+                        lock_timer.cancel()
+                        lock_timer = None
+                executor.submit(lock_door)
             elif not ir_detected and not door_locked:
-                # Door opened (unlocked)
+                # Door opened (unlocked) - mark that it was physically opened
                 door_open_start_time = now
+                door_was_opened = True
                 print("[IR] Door opened - starting reminder timer")
         
         prev_ir_state = ir_detected
         
-        # --- Door Open Reminder (every 2 minutes) ---
+        # --- Door Open Nag Loop (per Assignment PDF) ---
+        # If door has been open for longer than 15 seconds, repeatedly nag
         if door_open_start_time and not door_locked:
             time_open = now - door_open_start_time
             time_since_reminder = now - last_door_reminder
             
-            if time_open >= DOOR_OPEN_REMINDER_INTERVAL and time_since_reminder >= DOOR_OPEN_REMINDER_INTERVAL:
-                minutes_open = int(time_open / 60)
-                print(f"[REMINDER] Door has been open for {minutes_open} minutes!")
-                publish_alert("door_open", f"Door open for {minutes_open} minutes")
-                executor.submit(trigger_alert_pattern)
+            if time_open >= DOOR_OPEN_REMINDER_INTERVAL and time_since_reminder >= 10:
+                # Nag every 10 seconds after the initial 15s grace period
+                print(f"[NAG] Please close the door! Open for {int(time_open)}s")
+                speak_female("Please close the door.")
+                
+                # Flash LED + short beep to get attention
+                GPIO.output(LED_PIN, GPIO.HIGH)
+                buzzer_pwm.ChangeDutyCycle(30)
+                time.sleep(0.3)
+                GPIO.output(LED_PIN, GPIO.LOW)
+                buzzer_pwm.ChangeDutyCycle(0)
+                
+                publish_alert("door_open", f"Door open for {int(time_open)} seconds")
                 last_door_reminder = now
         
         # --- DHT11 Sensor (Temperature & Humidity) ---

@@ -249,7 +249,7 @@ async def process_face_recognition(image_url: str):
         if not FACE_RECOGNITION_AVAILABLE:
             print("[FaceRec] Library not available, denying access")
             access_attempt["person_name"] = "Unknown (Library Unavailable)"
-            send_access_response(False, "Unknown")
+            send_access_response(False, "Unknown", "error")
             await manager.broadcast({"type": "access_denied", "data": access_attempt})
             access_log.append(access_attempt)
             return
@@ -258,7 +258,7 @@ async def process_face_recognition(image_url: str):
         response = requests.get(image_url, timeout=10)
         if response.status_code != 200:
             print(f"[FaceRec] Failed to fetch image: {response.status_code}")
-            send_access_response(False, "Image Error")
+            send_access_response(False, "Image Error", "error")
             return
         
         # Load image for face recognition
@@ -271,7 +271,7 @@ async def process_face_recognition(image_url: str):
         if len(face_locations) == 0:
             print("[FaceRec] No face detected in image")
             access_attempt["person_name"] = "No Face Detected"
-            send_access_response(False, "No Face")
+            send_access_response(False, "No Face", "no_face")
             await manager.broadcast({"type": "access_denied", "data": access_attempt})
             access_log.append(access_attempt)
             return
@@ -281,7 +281,7 @@ async def process_face_recognition(image_url: str):
         
         if len(face_encodings) == 0:
             print("[FaceRec] Could not encode face")
-            send_access_response(False, "Encoding Error")
+            send_access_response(False, "Encoding Error", "error")
             return
         
         unknown_encoding = face_encodings[0]
@@ -291,7 +291,7 @@ async def process_face_recognition(image_url: str):
             if len(registered_faces) == 0:
                 print("[FaceRec] No registered faces, denying access")
                 access_attempt["person_name"] = "Unknown (No Users Registered)"
-                send_access_response(False, "Unknown")
+                send_access_response(False, "Unknown", "unauthorized")
                 await manager.broadcast({"type": "access_denied", "data": access_attempt})
                 access_log.append(access_attempt)
                 return
@@ -311,7 +311,7 @@ async def process_face_recognition(image_url: str):
                     lab_storage_state["last_access_by"] = person_name
                     lab_storage_state["last_access_time"] = datetime.now().isoformat()
                     
-                    send_access_response(True, person_name)
+                    send_access_response(True, person_name, "authorized")
                     await manager.broadcast({"type": "access_granted", "data": access_attempt})
                     access_log.append(access_attempt)
                     
@@ -322,26 +322,35 @@ async def process_face_recognition(image_url: str):
         # No match found
         print("[FaceRec] No matching face found, ACCESS DENIED")
         access_attempt["person_name"] = "Unknown Person"
-        send_access_response(False, "Unknown")
+        send_access_response(False, "Unknown", "unauthorized")
         await manager.broadcast({"type": "access_denied", "data": access_attempt})
         access_log.append(access_attempt)
         save_access_log(access_attempt)
         
     except Exception as e:
         print(f"[FaceRec] Error during recognition: {e}")
-        send_access_response(False, "Error")
+        send_access_response(False, "Error", "error")
         access_attempt["person_name"] = f"Error: {str(e)}"
         access_log.append(access_attempt)
 
-def send_access_response(authorized: bool, name: str):
-    """Send access response back to IoT device via MQTT."""
+def send_access_response(authorized: bool, name: str, reason: str = "authorized"):
+    """Send access response back to IoT device via MQTT.
+    
+    Reasons:
+    - 'authorized': Face matched a registered user
+    - 'no_face': No face was detected in the image
+    - 'unauthorized': Face detected but doesn't match any registered user
+    - 'error': An error occurred during processing
+    """
     response = {
         "authorized": authorized,
         "name": name,
+        "reason": reason,
         "timestamp": datetime.now().isoformat()
     }
     mqtt_client.publish("chemlab/access_response", json.dumps(response), qos=1)
     print(f"[MQTT] Sent access response: {response}")
+
 
 def save_access_log(log_entry: Dict):
     """Save access log to Supabase."""

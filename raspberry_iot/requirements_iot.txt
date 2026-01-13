@@ -4,3 +4,4 @@ paho-mqtt
 supabase
 python-dotenv
 Pillow
+gTTS
