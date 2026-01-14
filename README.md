@@ -26,9 +26,8 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
 ### 🐳 Docker & GCP Cloud Deployment
 
 - **Docker Containerization**: Frontend and Backend fully containerized with optimized multi-stage builds
-- **GCP Compute Engine**: Deployed on Google Cloud Platform VMs (us-central1-c region)
+- **GCP Compute Engine**: Deployed on Google Cloud Platform VMs with dedicated Nginx and MQTT Broker
 - **Nginx Reverse Proxy**: Production-ready frontend serving with secure API proxying
-- **MQTT Broker VM**: Dedicated Mosquitto MQTT broker for IoT device communication
 
 ### 🗄️ Multi-Cabinet Demo
 
@@ -57,58 +56,6 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
 - **Unlock Source Tracking**: Differentiates between `authorized` (face), `remote` (dashboard), and `forced` access
 - **Immediate Lock on Close**: Door locks instantly when IR sensor detects door closure
 - **Smart Intrusion Detection**: Alerts only when door opened without authorization
-
----
-
-## 🔄 Complete User Workflow
-
-### 1. User Registration (One-time Setup)
-
-1. Admin logs into the Web Dashboard
-2. Navigate to **Users** tab → Click **"Add User"**
-3. Upload 3-5 clear photos of the authorized person
-4. System computes averaged biometric template
-5. SweetAlert shows "Processing..." → "Face Registered!" confirmation
-
-### 2. Access Request Flow
-
-1. User approaches the storage container
-2. Presses the **Physical Button** on the Raspberry Pi
-3. **Camera** captures a high-resolution photo
-4. Image is uploaded to Supabase Storage
-5. Backend receives the image URL and performs face recognition
-
-### 3. Authentication Response
-
-**If Authorized:**
-```
-Female Voice: "Access Granted. Welcome, [Name]"
-→ Servo rotates to 90° (unlocked)
-→ Dashboard shows: "OPEN" + "Auto-lock in 15s" countdown
-→ After door closes OR 15 seconds → Auto-lock
-```
-
-**If Unauthorized:**
-```
-Male Voice: "Access Denied. You are not authorized to enter this area."
-→ LED flashes + Buzzer sounds (siren pattern)
-→ Male Voice: "Alert! Intrusion Detected"
-→ Dashboard shows Security Alert notification
-```
-
-**If No Face Detected:**
-```
-Male Voice: "No face detected. Please look at the camera and try again."
-→ No siren (just a positioning issue)
-```
-
-### 4. Auto-Lock Behavior
-
-| Scenario | Action |
-|----------|--------|
-| Door never opened | Female: "Door closed." → Silent lock |
-| Door opened then closed | Immediate lock on IR detection |
-| Door left open > 15s | Female: "Please close the door." (every 15s) |
 
 ---
 
@@ -164,466 +111,6 @@ Male Voice: "No face detected. Please look at the camera and try again."
 
 ---
 
-## 🚀 Installation Guide
-
-### Prerequisites
-
-- Python 3.11+ (Miniconda recommended for Windows)
-- Node.js 18+
-- Raspberry Pi 2/3/4 with Pi Camera
-- Supabase account (PostgreSQL + Storage)
-- MQTT Broker (e.g., Mosquitto, HiveMQ Cloud)
-- Docker (optional, for containerized deployment)
-
-### 🐳 Docker Deployment Guide
-
-The deployment process consists of two main phases: **Containerization** (building images locally) and **Cloud Deployment** (running them on GCP VMs).
-
-#### Phase 1: Docker Containerization (Local)
-
-First, build the Docker images for both services and push them to Docker Hub.
-![alt text](image-1.png)
-```bash
-# 1. Backend Image
-cd backend
-docker build -t yourusername/chemlab-backend:latest .
-docker push yourusername/chemlab-backend:latest
-
-# 2. Frontend Image
-cd frontend
-docker build -t yourusername/chemlab-frontend:latest .
-docker push yourusername/chemlab-frontend:latest
-```
-
-#### Phase 2: Deploy to GCP Compute Engine VMs
-
-Our production environment uses **GCP Compute Engine** VMs in the `us-central1-c` region:
-
-| VM Instance | OS | Machine Type | Resources | Purpose |
-|-------------|-----|--------------|-----------|---------|
-| **chemlab-frontend** | Ubuntu 22.04 LTS | e2-medium | 2 vCPUs, 4 GB RAM, 10 GB disk | React Dashboard + Nginx |
-| **chemlab-backend** | Ubuntu 22.04 LTS | e2-standard-2 | 2 vCPUs, 8 GB RAM | FastAPI + Face Recognition |
-| **chemical-mqtt-broker** | Debian 12 (Bookworm) | e2-micro | 2 vCPUs, 1 GB RAM | Mosquitto MQTT Broker |
-
-**Deployment Steps via Google Cloud Console:**
-
-1. Go to [GCP Console](https://console.cloud.google.com/compute) → Compute Engine → VM Instances
-2. Create your VMs according to the specs above (Ubuntu 22.04 LTS or Debian 12)
-3. **SSH into each VM** and set up the environment:
-
-   ```bash
-   # Update and install Docker
-   sudo apt update && sudo apt install -y docker.io
-   sudo usermod -aG docker $USER
-   newgrp docker
-   ```
-
-4. **Run the Containers** on their respective VMs:
-
-   **On `chemlab-backend` VM:**
-   ```bash
-   docker pull yourusername/chemlab-backend:latest
-   # Run with required environment variables
-   docker run -d -p 8000:8000 --name backend \
-     -e SUPABASE_URL="https://xxx.supabase.co" \
-     -e SUPABASE_KEY="your-key" \
-     -e MQTT_BROKER="<internal-broker-ip>" \
-     yourusername/chemlab-backend:latest
-   ```
-
-   **On `chemlab-frontend` VM:**
-   ```bash
-   docker pull yourusername/chemlab-frontend:latest
-   docker run -d -p 80:80 --name frontend yourusername/chemlab-frontend:latest
-   ```
-
-5. **Firewall Configuration**: Ensure the following ports are open in your VPC network:
-   - **HTTP (80) / HTTPS (443)**: Allow ingress from `0.0.0.0/0` (Internet)
-   - **MQTT (1883/8883)**: Allow ingress from internal VPC IPs (10.128.0.0/9)
-
-#### 🔒 Nginx Reverse Proxy - Security Benefits
-
-The frontend container uses **Nginx** as a reverse proxy, providing critical security advantages:
-
-| Security Feature | Description |
-|-----------------|-------------|
-| **API Proxying** | Backend API calls routed through `/api/*` - hides backend server topology from clients |
-| **Security Headers** | Enforces `X-Frame-Options`, `X-XSS-Protection`, and `X-Content-Type-Options` |
-| **Static Asset Caching** | Reduces backend load by serving cached React build files (1-year expiry) |
-| **SPA Routing** | Handles client-side routing by serving `index.html` for all paths |
-
-**Nginx Configuration Snippet:**
-```nginx
-server {
-    listen 80;
-    
-    # Security Headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    
-    # Static caching
-    location ~* \.(js|css|png)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # API Proxying
-    location /api/ {
-        proxy_pass http://backend:8000/api/;
-    }
-}
-```
-
-**Environment Variables Required:**
-
-```bash
-# Backend (.env)
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_KEY=your-service-role-key
-MQTT_BROKER=<internal-mqtt-vm-ip>
-MQTT_PORT=1883
-MQTT_USER=your-mqtt-user
-MQTT_PASS=your-mqtt-password
-
-# Frontend (.env)
-VITE_API_URL=http://<backend-vm-ip>:8000
-VITE_WS_URL=ws://<backend-vm-ip>:8000/ws
-```
-
-### 🐍 Why Miniconda? (Face Recognition Dependencies)
-
-The `face_recognition` library is the core of our biometric authentication system. It uses **dlib**, a powerful C++ machine learning library, to compute 128-dimensional face encodings. However, installing dlib on Windows presents significant challenges:
-
-#### The Problem
-
-```
-pip install dlib  # ❌ Often fails on Windows!
-```
-
-**Common errors:**
-- `CMake error: No CMAKE_C_COMPILER could be found`
-- `error: Microsoft Visual C++ 14.0 or greater is required`
-- Build timeouts and memory issues during compilation
-
-**Root Cause:** dlib requires C++ compilation tools (CMake, Visual Studio Build Tools) that are complex to configure correctly on Windows.
-
-#### The Solution: Miniconda
-
-### 🐍 Hybrid Dependency Strategy: Local vs. Cloud
-
-We use a **hybrid approach** to handle the complex C++ dependencies of `face_recognition` (specifically `dlib`):
-
-| Environment | OS | Dependency Manager | Reason |
-|-------------|----|--------------------|--------|
-| **Local Development** | Windows 10/11 | **Miniconda** | **Mandatory.** Compiling `dlib` from source on Windows is notoriously difficult (requires Visual Studio C++ Build Tools). Conda provides pre-compiled binaries (`conda install dlib`), bypassing compilation errors. |
-| **Cloud Deployment** | Linux (Docker) | **Pip + System Tools** | **Standard.** The Docker container uses a lightweight Linux base. Compiling `dlib` from source on Linux is reliable and straightforward using standard tools (`cmake`, `gcc`). We use `pip` in the container to keep it standard and lightweight. |
-
-#### Why Miniconda for Local Windows?
-
-Installing `dlib` via `pip` on Windows often fails with:
-- `CMake error: No CMAKE_C_COMPILER could be found`
-- `error: Microsoft Visual C++ 14.0 or greater is required`
-
-Miniconda solves this by fetching pre-built binaries from `conda-forge`:
-```bash
-conda install -c conda-forge dlib -y  # ✅ Works instantly on Windows
-```
-
-#### How Face Recognition Works
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Face Recognition Pipeline                 │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  1. Image Input                                              │
-│     └─→ User uploads photo or camera captures image         │
-│                                                              │
-│  2. Face Detection (dlib HOG/CNN)                           │
-│     └─→ Locates face boundaries in the image                │
-│                                                              │
-│  3. Face Encoding (dlib ResNet)                             │
-│     └─→ Generates 128-dimensional feature vector            │
-│         [0.12, -0.34, 0.56, ..., 0.78] (128 floats)         │
-│                                                              │
-│  4. Comparison                                               │
-│     └─→ Euclidean distance between stored and new encoding  │
-│         distance < 0.6 = MATCH ✓                            │
-│                                                              │
-│  5. Multi-Image Averaging (Our Enhancement)                 │
-│     └─→ Average of 3-5 encodings for robust recognition    │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-#### Install Miniconda
-
-**Windows:**
-```bash
-# Download from: https://docs.conda.io/en/latest/miniconda.html
-# Run the installer, add to PATH when prompted
-```
-
-**macOS/Linux:**
-```bash
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh
-```
-
-#### Essential Conda Commands
-
-After installing Miniconda, here are the key commands you'll use:
-
-**Environment Management:**
-
-```bash
-# Create a new environment with specific Python version
-conda create --name chemlab python=3.11
-
-# Activate the environment (MUST do this before installing packages)
-conda activate chemlab
-
-# Deactivate current environment
-conda deactivate
-
-# List all environments
-conda env list
-
-# Remove an environment
-conda remove --name chemlab --all
-```
-
-**Package Installation (conda-forge channel):**
-
-```bash
-# Install packages from conda-forge (recommended for scientific packages)
-conda install conda-forge::dlib
-conda install conda-forge::numpy
-conda install conda-forge::scipy
-
-# Alternative syntax (same result)
-conda install -c conda-forge dlib numpy scipy
-
-# Install multiple packages at once
-conda install -c conda-forge dlib numpy pandas matplotlib
-```
-
-**Why conda-forge?**
-
-| Channel | Description |
-|---------|-------------|
-| `defaults` | Anaconda's curated packages (may be older versions) |
-| `conda-forge` | Community-maintained, up-to-date, includes dlib binaries |
-
-**Mixing pip and conda:**
-
-```bash
-# First install conda packages (native dependencies)
-conda install -c conda-forge dlib numpy
-
-# Then use pip for pure-Python packages
-pip install face_recognition fastapi paho-mqtt
-```
-
-> ⚠️ **Important:** Always install conda packages first, then pip packages. This avoids dependency conflicts.
-
----
-
-### Backend Server Setup
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd chemical_detector
-
-# Create conda environment (REQUIRED for dlib/face_recognition)
-conda create -n chemlab python=3.11 -y
-conda activate chemlab
-
-# Install dlib from conda-forge (pre-compiled, no C++ tools needed)
-conda install -c conda-forge dlib -y
-
-# Now face_recognition will install successfully
-pip install face_recognition
-
-# Install remaining Python dependencies
-cd backend
-pip install -r requirements.txt
-
-# Configure environment variables
-cp .env.example .env
-# Edit .env with your Supabase and MQTT credentials
-
-# Start the server
-uvicorn server:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### Frontend Setup
-
-```bash
-cd frontend
-npm install
-npm run dev
-# Dashboard available at http://localhost:5173
-```
-
-### Raspberry Pi Setup
-
-```bash
-# Update system
-sudo apt-get update && sudo apt-get upgrade -y
-
-# Install system dependencies
-sudo apt-get install -y python3-pip python3-dev
-sudo apt-get install -y libatlas-base-dev  # For numpy
-sudo apt-get install -y mpg123 festival espeak-ng  # Voice synthesis
-
-# Install Python dependencies
-cd raspberry_iot
-pip3 install -r requirements_iot.txt
-pip3 install gTTS
-
-# Configure environment
-cp .env.iot.example .env.iot
-# Edit .env.iot with MQTT and Supabase credentials
-
-# Run the IoT controller
-python3 iot_code.py
-```
-
----
-
-## 🔌 Hardware Configuration
-
-### GPIO Pinout (Raspberry Pi 2 Model B)
-
-| Component | GPIO Pin | Physical Pin | Connection Notes |
-|-----------|----------|--------------|------------------|
-| **DHT11** (Data) | GPIO 27 | Pin 13 | 10kΩ pull-up resistor to 3.3V |
-| **Button** | GPIO 17 | Pin 11 | Internal pull-up enabled, connect to GND |
-| **Red LED** | GPIO 22 | Pin 15 | 220Ω resistor to GND |
-| **IR Sensor** (OUT) | GPIO 24 | Pin 18 | 3.3V compatible module |
-| **Buzzer** | GPIO 25 | Pin 22 | Active buzzer, PWM control |
-| **Servo** (Signal) | GPIO 12 | Pin 32 | PWM0 capable, 50Hz frequency |
-
-### Power Connections
-
-| Component | VCC | GND |
-|-----------|-----|-----|
-| DHT11 | 3.3V | GND |
-| IR Sensor | 5V | GND |
-| Servo | 5V (external) | Common GND |
-| Buzzer | - | GND |
-
----
-
-## 📡 MQTT Communication
-
-### Topic Structure
-
-| Topic | Direction | Purpose |
-|-------|-----------|---------|
-| `chemlab/telemetry` | Pi → Backend | Temperature, humidity readings (every 2s) |
-| `chemlab/access` | Pi → Backend | Face capture image URL for recognition |
-| `chemlab/access_response` | Backend → Pi | Authorization result with name/reason |
-| `chemlab/status` | Pi → Backend | Door state, auto_lock_at timestamp |
-| `chemlab/intrusion` | Pi → Backend | Security alert messages |
-| `chemlab/alert` | Pi → Backend | System warnings (door open, etc.) |
-| `chemlab/command` | Backend → Pi | Remote control commands |
-
-### Payload Examples
-
-**Telemetry:**
-```json
-{
-  "device": "chemlab_pi",
-  "temperature_celsius": 23.5,
-  "humidity_percent": 45.2,
-  "timestamp": "2026-01-13 18:45:00"
-}
-```
-
-**Access Response:**
-```json
-{
-  "authorized": true,
-  "name": "John Doe",
-  "reason": "authorized"
-}
-```
-
-**Status Update:**
-```json
-{
-  "device": "chemlab_pi",
-  "door_state": "unlocked",
-  "auto_lock_at": "2026-01-13 18:45:15",
-  "last_access_by": "John Doe",
-  "timestamp": "2026-01-13 18:45:00"
-}
-```
-
----
-
-## 🎤 Voice System Details
-
-### Female Voice (`voice/femaleTalk.py`)
-
-- **Technology**: Google Text-to-Speech (gTTS) + mpg123 playback
-- **Accent**: Australian English (`tld='com.au'`)
-- **Usage**: Welcoming, confirmations, gentle reminders
-
-| Trigger | Message |
-|---------|---------|
-| Access Granted | "Access Granted. Welcome, {name}" |
-| Door Auto-locked | "Door closed." |
-| Door Left Open | "Please close the door." |
-
-### Male Voice (`voice/maleTalk.py`)
-
-- **Primary**: Festival `text2wave` for natural speech
-- **Fallback**: espeak-ng with optimized parameters
-- **Usage**: Warnings, security alerts, access denials
-
-| Trigger | Message |
-|---------|---------|
-| Access Denied | "Access Denied. You are not authorized to enter this area." |
-| Intrusion | "Alert! Intrusion Detected" |
-| No Face | "No face detected. Please look at the camera and try again." |
-| System Error | "System error. Please contact an administrator." |
-
----
-
-## 📁 Project Structure
-
-```
-chemical_detector/
-├── backend/
-│   ├── server.py              # FastAPI server, face recognition, MQTT
-│   ├── requirements.txt       # Python dependencies
-│   └── .env                   # Supabase + MQTT credentials
-│
-├── frontend/
-│   ├── src/
-│   │   └── App.tsx            # Main React application (1700+ lines)
-│   ├── types.ts               # TypeScript interfaces
-│   ├── constants.tsx          # Theme, initial state, tabs
-│   └── package.json           # Node dependencies
-│
-├── raspberry_iot/
-│   ├── iot_code.py            # Main Raspberry Pi controller
-│   ├── requirements_iot.txt   # Pi-specific dependencies
-│   ├── .env.iot               # MQTT + Supabase credentials
-│   └── voice/
-│       ├── maleTalk.py        # Male voice (Festival/espeak-ng)
-│       ├── femaleTalk.py      # Female voice (gTTS + mpg123)
-│       └── testTalk.py        # Voice testing utility
-│
-└── README.md                  # This documentation
-```
-
----
-
 ## 🛠️ Technology Stack
 
 | Layer | Technologies |
@@ -637,84 +124,185 @@ chemical_detector/
 
 ---
 
-## ⚙️ Environment Variables
+## 📁 Project Structure
 
-### Backend (`.env`)
-
-```env
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-service-role-key
-MQTT_BROKER=your-mqtt-broker-ip
-MQTT_PORT=1883
-MQTT_USER=your-username
-MQTT_PASS=your-password
 ```
-
-### Raspberry Pi (`.env.iot`)
-
-```env
-MQTT_BROKER=your-mqtt-broker-ip
-MQTT_PORT=1883
-MQTT_USER=your-username
-MQTT_PASS=your-password
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-service-role-key
+chemical_detector/
+├── backend/
+│   ├── server.py              # FastAPI server, face recognition, MQTT
+│   ├── requirements.txt       # Python dependencies
+│   └── .env                   # Supabase + MQTT credentials
+├── frontend/
+│   ├── src/
+│   │   └── App.tsx            # Main React application (1700+ lines)
+│   ├── types.ts               # TypeScript interfaces
+│   ├── constants.tsx          # Theme, initial state, tabs
+│   └── package.json           # Node dependencies
+├── raspberry_iot/
+│   ├── iot_code.py            # Main Raspberry Pi controller
+│   ├── requirements_iot.txt   # Pi-specific dependencies
+│   ├── .env.iot               # MQTT + Supabase credentials
+│   └── voice/
+│       ├── maleTalk.py        # Male voice
+│       ├── femaleTalk.py      # Female voice
+│       └── testTalk.py        # Voice testing utility
+└── README.md                  # This documentation
 ```
 
 ---
 
-## � Troubleshooting
+## 🚀 Installation Guide (Services)
 
-### Common Issues
+### Prerequisites
 
-| Issue | Solution |
-|-------|----------|
-| `ModuleNotFoundError: face_recognition` | Use conda: `conda install -c conda-forge dlib`, then `pip install face_recognition` |
-| Voice not playing | Check `mpg123` is installed: `sudo apt-get install mpg123` |
-| Camera not detected | Enable camera: `sudo raspi-config` → Interface Options → Camera |
-| MQTT connection failed | Verify broker IP, port, and credentials in `.env.iot` |
-| Servo jittering | Use external 5V power supply for servo |
+- Python 3.11+ (Miniconda recommended for Windows)
+- Node.js 18+
+- Raspberry Pi 2/3/4 with Pi Camera
+- Supabase account (PostgreSQL + Storage)
+- MQTT Broker (e.g., Mosquitto, HiveMQ Cloud)
 
-### Testing Commands
+### 🐍 Hybrid Dependency Strategy: Local vs. Cloud
+
+We use a **hybrid approach** to handle the complex C++ dependencies of `face_recognition` (specifically `dlib`):
+
+| Environment | OS | Dependency Manager | Reason |
+|-------------|----|--------------------|--------|
+| **Local Development** | Windows 10/11 | **Miniconda** | **Mandatory.** Compiling `dlib` from source on Windows is notoriously difficult. Conda provides pre-compiled binaries (`conda install dlib`), bypassing errors. |
+| **Cloud Deployment** | Linux (Docker) | **Pip + System** | **Standard.** The Docker container uses a lightweight Linux base. Compiling `dlib` from source on Linux is reliable. We use `pip` to keep it standard. |
+
+**Install Miniconda (Windows/Mac/Linux):**
+```bash
+# Windows: https://docs.conda.io/en/latest/miniconda.html
+# Linux:
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && bash Miniconda3-latest-Linux-x86_64.sh
+```
+
+### 1. Backend Server Setup (Local)
 
 ```bash
-# Test female voice
-python3 voice/femaleTalk.py
+# Clone
+git clone <repository-url>
+cd chemical_detector
 
-# Test male voice
-python3 voice/maleTalk.py
+# Create environment (REQUIRED for dlib)
+conda create -n chemlab python=3.11 -y
+conda activate chemlab
 
-# Test both voices
-python3 voice/testTalk.py
+# Install dependencies
+conda install -c conda-forge dlib -y
+pip install face_recognition
+cd backend
+pip install -r requirements.txt
+
+# Configure .env
+cp .env.example .env
+# Edit .env with Supabase & MQTT credentials
+
+# Run Server
+uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 2. Frontend Setup (Local)
+
+```bash
+cd frontend
+npm install
+npm run dev
+# Dashboard available at http://localhost:5173
 ```
 
 ---
 
-## �📜 License
+## 🐳 Docker Deployment Guide (Production)
 
-MIT License - Feel free to use and modify for your projects.
+The deployment process consists of two main phases: **Containerization** (building images locally) and **Cloud Deployment** (running them on GCP VMs).
 
----
+### Docker Files Reference
 
-## 🤝 Contributing
+| File | Purpose |
+|------|---------|
+| `backend/Dockerfile` | FastAPI + face_recognition (Linux build) |
+| `frontend/Dockerfile` | Multi-stage Node.js + Nginx |
+| `frontend/nginx.conf` | Reverse proxy configuration |
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+### Phase 1: Docker Containerization (Local)
 
----
+Build and push the images to Docker Hub.
 
-*Built with ❤️ for secure chemical storage management*
+![alt text](image-1.png)
 
-**Last Updated:** January 2026
+```bash
+# 1. Backend Image
+cd backend
+docker build -t yourusername/chemlab-backend:latest .
+docker push yourusername/chemlab-backend:latest
 
----
+# 2. Frontend Image
+cd frontend
+docker build -t yourusername/chemlab-frontend:latest .
+docker push yourusername/chemlab-frontend:latest
+```
 
-## 🐳 Docker & Cloud Deployment
+### Phase 2: Deploy to GCP Compute Engine VMs
 
-The application can be containerized and deployed to Google Cloud Platform (GCP) for production use.
+Our production environment uses **GCP Compute Engine** VMs in the `us-central1-c` region:
+
+| VM Instance | OS | Machine Type | Resources | Purpose |
+|-------------|-----|--------------|-----------|---------|
+| **chemlab-frontend** | Ubuntu 22.04 LTS | e2-medium | 2 vCPUs, 4 GB RAM | React Dashboard + Nginx |
+| **chemlab-backend** | Ubuntu 22.04 LTS | e2-standard-2 | 2 vCPUs, 8 GB RAM | FastAPI + Face Recognition |
+| **chemical-mqtt-broker** | Debian 12 | e2-micro | 2 vCPUs, 1 GB RAM | Mosquitto MQTT Broker |
+
+**Deployment Steps via Google Cloud Console:**
+
+1. **Create VMs** according to the specs above.
+2. **SSH into each VM** and install Docker:
+   ```bash
+   sudo apt update && sudo apt install -y docker.io
+   sudo usermod -aG docker $USER && newgrp docker
+   ```
+3. **Run Backend Container (`chemlab-backend` VM):**
+   ```bash
+   docker run -d -p 8000:8000 --name backend \
+     -e SUPABASE_URL="https://xxx.supabase.co" \
+     -e SUPABASE_KEY="your-key" \
+     -e MQTT_BROKER="<internal-broker-ip>" \
+     yourusername/chemlab-backend:latest
+   ```
+   *Note: Use the internal IP of the MQTT broker VM.*
+
+4. **Run Frontend Container (`chemlab-frontend` VM):**
+   ```bash
+   docker run -d -p 80:80 --name frontend yourusername/chemlab-frontend:latest
+   ```
+
+5. **Firewall Configuration:**
+   - **HTTP (80)**: Allow from 0.0.0.0/0
+   - **MQTT (1883)**: Allow from internal VPC (10.128.0.0/9)
+
+### 🔒 Nginx Reverse Proxy - Security Benefits
+
+The frontend container uses **Nginx** providing critical security:
+
+| Security Feature | Description |
+|-----------------|-------------|
+| **API Proxying** | Routes `/api/` to backend, hiding server topology |
+| **Security Headers** | Enforces `X-Frame-Options`, `X-XSS-Protection` |
+| **Static Caching** | Caches React assets for 1 year |
+| **SPA Routing** | Handles client-side routing |
+
+**Nginx Configuration Snippet:**
+```nginx
+server {
+    listen 80;
+    
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    location /api/ {
+        proxy_pass http://backend:8000/api/;
+    }
+}
+```
 
 ### Docker Architecture
 
@@ -735,88 +323,112 @@ The application can be containerized and deployed to Google Cloud Platform (GCP)
      Browser/Mobile              Raspberry Pi (MQTT)
 ```
 
-### Quick Start (Local Docker)
+---
+
+## 🔌 Hardware Setup (IoT)
+
+### Raspberry Pi Configuration
 
 ```bash
-docker-compose up -d --build
-docker-compose logs -f
+# Install dependencies
+sudo apt-get install -y python3-pip python3-dev libatlas-base-dev mpg123 festival espeak-ng
+
+# Install Python packages
+cd raspberry_iot
+pip3 install -r requirements_iot.txt
+
+# Configure
+cp .env.iot.example .env.iot
+# Edit .env.iot with MQTT/Supabase credentials
+
+# Run
+python3 iot_code.py
 ```
 
-### GCP Deployment
+### GPIO Pinout (Pi 2 Model B)
 
-**VM Specifications (Minimal):**
+| Component | GPIO | Pin | Notes |
+|-----------|------|-----|-------|
+| **DHT11** | 27 | 13 | 10kΩ pull-up |
+| **Button** | 17 | 11 | Internal pull-up |
+| **Red LED** | 22 | 15 | 220Ω resistor |
+| **IR Sensor** | 24 | 18 | 3.3V |
+| **Buzzer** | 25 | 22 | PWM |
+| **Servo** | 12 | 32 | PWM0 |
 
-| Resource | Specification | Cost |
-|----------|---------------|------|
-| Machine Type | e2-small (2 vCPU, 2GB) | ~$13/mo |
-| Boot Disk | 20GB SSD | ~$2/mo |
-| OS | Ubuntu 22.04 LTS | Free |
+---
 
-> Use `e2-medium` (4GB RAM) during initial build for dlib compilation.
+## 📡 MQTT Communication
 
-**Firewall Rules (VPC Network → Firewall):**
+**Topic Structure:**
 
-| Port | Purpose |
-|------|---------|
-| 80 | Frontend Dashboard |
-| 1883 | MQTT Broker |
+| Topic | Direction | Purpose |
+|-------|-----------|---------|
+| `chemlab/telemetry` | Pi → Backend | Temp/Humidity Data |
+| `chemlab/access` | Pi → Backend | Face Capture URL |
+| `chemlab/access_response` | Backend → Pi | Auth Result |
+| `chemlab/status` | Pi → Backend | Door State |
+| `chemlab/intrusion` | Pi → Backend | Security Alerts |
 
-### Nginx Reverse Proxy (Best Practice)
+---
 
-Frontend proxies API requests to the backend over **internal network**:
+## 🔄 User Workflow
 
-```nginx
-# frontend/nginx.conf
-location /api/ {
-    proxy_pass http://10.128.0.4:8000/api/;  # Backend Internal IP
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection 'upgrade';
-}
+### 1. Registration
+Admin uploads 3-5 photos. System computes averaged template.
 
-location /ws {
-    proxy_pass http://10.128.0.4:8000/ws;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-}
+### 2. Access Request
+User presses button. Camera captures photo. Backend authenticates.
+
+### 3. Response
+- **Authorized:** Female voice ("Access Granted"), Door opens (15s).
+- **Unauthorized:** Male voice ("Access Denied"), Siren, Red LED.
+
+### 4. Auto-Lock
+Door locks automatically after 15s or immediately when closed (IR sensor).
+
+---
+
+## 🎤 Voice System Details
+
+**Female Voice (gTTS)**: Friendly. Used for greetings and regular status (e.g., "Door closed").
+**Male Voice (Festival)**: Authoritative. Used for alerts and warnings (e.g., "Intrusion Detected").
+
+---
+
+## ⚙️ Environment Variables
+
+**Backend (`.env`)**
+```env
+SUPABASE_URL=...
+SUPABASE_KEY=...
+MQTT_BROKER=...
+MQTT_PORT=1883
 ```
 
-**Benefits:**
-- ✅ Backend not exposed to public internet
-- ✅ No need to rebuild frontend when IPs change
-- ✅ Faster internal GCP network communication
-
-### Docker Hub Workflow
-
-```bash
-# Build and push (local machine)
-cd backend && docker build -t USER/chemlab-backend:latest . && docker push USER/chemlab-backend:latest
-cd frontend && docker build -t USER/chemlab-frontend:latest . && docker push USER/chemlab-frontend:latest
-
-# Deploy (GCP VM)
-docker pull USER/chemlab-backend:latest
-docker-compose up -d
+**Frontend (`.env`)**
+```env
+VITE_API_URL=http://<backend-ip>:8000
+VITE_WS_URL=ws://<backend-ip>:8000/ws
 ```
 
-### DNS Fix (Container Cannot Resolve External Domains)
+---
 
-Add to `docker-compose.yml`:
+## 🔧 Troubleshooting
 
-```yaml
-services:
-  backend:
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-```
+| Issue | Solution |
+|-------|----------|
+| `face_recognition` error | Use **Miniconda** (local) or **Docker** (cloud). |
+| Camera not detected | `sudo raspi-config` → Interface → Enable Camera. |
+| **Container DNS Issue** | If container can't resolve domains, add `dns: [8.8.8.8]` to `docker-compose.yml`. |
 
-### Docker Files
+---
 
-| File | Purpose |
-|------|---------|
-| `backend/Dockerfile` | FastAPI + face_recognition |
-| `frontend/Dockerfile` | Multi-stage Node.js + Nginx |
-| `frontend/nginx.conf` | Reverse proxy + SPA routing |
-| `*/docker-compose.yml` | Standalone service deployment |
+## 🤝 Contributing & License
 
+1. Fork & Clone
+2. Create Feature Branch
+3. Submit PR
+
+**License:** MIT
+*Built with ❤️ for secure chemical storage management*
