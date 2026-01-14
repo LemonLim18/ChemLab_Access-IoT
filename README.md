@@ -1,5 +1,5 @@
 # ChemLab Access Control System 🧪🔐
-
+![alt text](image.png)
 A comprehensive IoT-based chemical storage access control system featuring **AI face recognition**, **dual-voice feedback**, **environmental monitoring**, **real-time dashboard**, and **intrusion detection**.
 
 ---
@@ -22,6 +22,20 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
 ---
 
 ## 🆕 Latest Updates
+
+### 🐳 Docker & Cloud Deployment
+
+- **Docker Containerization**: Frontend and Backend fully containerized with optimized multi-stage builds
+- **GCP Cloud Run**: One-click deployment to Google Cloud Platform via Docker Hub
+- **Nginx Reverse Proxy**: Production-ready frontend serving with API proxying
+- **Environment Config**: Flexible `.env` configuration for local/cloud deployment
+
+### 🗄️ Multi-Cabinet Demo
+
+- **Cabinet Selector Tabs**: Switch between Cabinet 1 (live IoT), Cabinet 2 (offline demo), Cabinet 3 (intrusion alert)
+- **Static Demo Data**: Fake temperature, humidity, access logs, and personnel for demo cabinets
+- **Intrusion Simulation**: Cabinet 3 shows red alert status, unlocked door, unknown person access, and temp spike
+- **Settings Integration**: Environment thresholds configurable per-cabinet with read-only demo mode
 
 ### Voice System
 
@@ -159,6 +173,61 @@ Male Voice: "No face detected. Please look at the camera and try again."
 - Raspberry Pi 2/3/4 with Pi Camera
 - Supabase account (PostgreSQL + Storage)
 - MQTT Broker (e.g., Mosquitto, HiveMQ Cloud)
+- Docker (optional, for containerized deployment)
+
+### 🐳 Docker Deployment (Recommended for Cloud)
+
+#### Option 1: Local Docker Development
+
+```bash
+# Build and run both frontend and backend
+docker-compose up --build
+
+# Access:
+# - Frontend: http://localhost:5173
+# - Backend: http://localhost:8000
+```
+
+#### Option 2: Deploy to GCP Cloud Run via Docker Hub
+
+**Step 1: Build and push images to Docker Hub**
+
+```bash
+# Backend
+cd backend
+docker build -t yourusername/chemlab-backend:latest .
+docker push yourusername/chemlab-backend:latest
+
+# Frontend
+cd frontend
+docker build -t yourusername/chemlab-frontend:latest .
+docker push yourusername/chemlab-frontend:latest
+```
+
+**Step 2: Deploy to GCP Cloud Run**
+
+1. Go to [GCP Console](https://console.cloud.google.com/run) → Cloud Run
+2. Click **Create Service** → Select **Deploy from existing container image**
+3. Enter: `docker.io/yourusername/chemlab-backend:latest`
+4. Set port to **8000** for backend, **80** for frontend
+5. Add environment variables from `.env` files
+6. Click **Create** and copy the service URL
+
+**Environment Variables Required:**
+
+```bash
+# Backend (.env)
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_KEY=your-service-role-key
+MQTT_BROKER=your-mqtt-broker.com
+MQTT_PORT=8883
+MQTT_USER=your-mqtt-user
+MQTT_PASS=your-mqtt-password
+
+# Frontend (.env)
+VITE_API_URL=https://your-backend-cloudrun-url
+VITE_WS_URL=wss://your-backend-cloudrun-url/ws
+```
 
 ### 🐍 Why Miniconda? (Face Recognition Dependencies)
 
