@@ -1,6 +1,6 @@
 # ChemLab Access Control System 🧪🔐
 ![alt text](image.png)
-A comprehensive IoT-based chemical storage access control system featuring **AI face recognition**, **dual-voice feedback**, **environmental monitoring**, **real-time dashboard**, and **intrusion detection**.
+A comprehensive IoT-based chemical storage access control system featuring **AI face recognition**, **dual-voice feedback**, **environmental monitoring**, **real-time dashboard**, and **intrusion detection**. Frontend and backend are **Docker containerized** and deployed on **GCP Compute Engine** VMs with a dedicated **MQTT broker** for IoT communication.
 
 ---
 
@@ -23,12 +23,12 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
 
 ## 🆕 Latest Updates
 
-### 🐳 Docker & Cloud Deployment
+### 🐳 Docker & GCP Cloud Deployment
 
 - **Docker Containerization**: Frontend and Backend fully containerized with optimized multi-stage builds
-- **GCP Cloud Run**: One-click deployment to Google Cloud Platform via Docker Hub
-- **Nginx Reverse Proxy**: Production-ready frontend serving with API proxying
-- **Environment Config**: Flexible `.env` configuration for local/cloud deployment
+- **GCP Compute Engine**: Deployed on Google Cloud Platform VMs (us-central1-c region)
+- **Nginx Reverse Proxy**: Production-ready frontend serving with secure API proxying
+- **MQTT Broker VM**: Dedicated Mosquitto MQTT broker for IoT device communication
 
 ### 🗄️ Multi-Cabinet Demo
 
@@ -175,43 +175,93 @@ Male Voice: "No face detected. Please look at the camera and try again."
 - MQTT Broker (e.g., Mosquitto, HiveMQ Cloud)
 - Docker (optional, for containerized deployment)
 
-### 🐳 Docker Deployment (Recommended for Cloud)
+### 🐳 Docker Deployment Guide
 
-#### Option 1: Local Docker Development
+The deployment process consists of two main phases: **Containerization** (building images locally) and **Cloud Deployment** (running them on GCP VMs).
 
+#### Phase 1: Docker Containerization (Local)
+
+First, build the Docker images for both services and push them to Docker Hub.
+![alt text](image-1.png)
 ```bash
-# Build and run both frontend and backend
-docker-compose up --build
-
-# Access:
-# - Frontend: http://localhost:5173
-# - Backend: http://localhost:8000
-```
-
-#### Option 2: Deploy to GCP Cloud Run via Docker Hub
-
-**Step 1: Build and push images to Docker Hub**
-
-```bash
-# Backend
+# 1. Backend Image
 cd backend
 docker build -t yourusername/chemlab-backend:latest .
 docker push yourusername/chemlab-backend:latest
 
-# Frontend
+# 2. Frontend Image
 cd frontend
 docker build -t yourusername/chemlab-frontend:latest .
 docker push yourusername/chemlab-frontend:latest
 ```
 
-**Step 2: Deploy to GCP Cloud Run**
+#### Phase 2: Deploy to GCP Compute Engine VMs
 
-1. Go to [GCP Console](https://console.cloud.google.com/run) → Cloud Run
-2. Click **Create Service** → Select **Deploy from existing container image**
-3. Enter: `docker.io/yourusername/chemlab-backend:latest`
-4. Set port to **8000** for backend, **80** for frontend
-5. Add environment variables from `.env` files
-6. Click **Create** and copy the service URL
+Our production environment uses **GCP Compute Engine** VMs in the `us-central1-c` region:
+
+| VM Instance | OS | Machine Type | Resources | Purpose |
+|-------------|-----|--------------|-----------|---------|
+| **chemlab-frontend** | Ubuntu 22.04 LTS | e2-medium | 2 vCPUs, 4 GB RAM, 10 GB disk | React Dashboard + Nginx |
+| **chemlab-backend** | Ubuntu 22.04 LTS | e2-standard-2 | 2 vCPUs, 8 GB RAM | FastAPI + Face Recognition |
+| **chemical-mqtt-broker** | Debian 12 (Bookworm) | e2-micro | 2 vCPUs, 1 GB RAM | Mosquitto MQTT Broker |
+
+**Deployment Steps via Google Cloud Console:**
+
+1. Go to [GCP Console](https://console.cloud.google.com/compute) → Compute Engine → VM Instances
+2. Create your VMs according to the specs above (Ubuntu 22.04 LTS or Debian 12)
+3. **SSH into each VM** and set up the environment:
+
+   ```bash
+   # Update and install Docker
+   sudo apt update && sudo apt install -y docker.io
+   sudo usermod -aG docker $USER
+   newgrp docker
+   ```
+
+4. **Run the Containers** on their respective VMs:
+
+   **On `chemlab-backend` VM:**
+   ```bash
+   docker pull yourusername/chemlab-backend:latest
+   # Run with required environment variables
+   docker run -d -p 8000:8000 --name backend \
+     -e SUPABASE_URL="https://xxx.supabase.co" \
+     -e SUPABASE_KEY="your-key" \
+     -e MQTT_BROKER="<internal-broker-ip>" \
+     yourusername/chemlab-backend:latest
+   ```
+
+   **On `chemlab-frontend` VM:**
+   ```bash
+   docker pull yourusername/chemlab-frontend:latest
+   docker run -d -p 80:80 --name frontend yourusername/chemlab-frontend:latest
+   ```
+
+5. **Firewall Configuration**: Ensure the following ports are open in your VPC network:
+   - **HTTP (80) / HTTPS (443)**: Allow ingress from `0.0.0.0/0` (Internet)
+   - **MQTT (1883/8883)**: Allow ingress from internal VPC IPs (10.128.0.0/9)
+
+#### 🔒 Nginx Reverse Proxy - Security Benefits
+
+The frontend container uses **Nginx** as a reverse proxy, providing critical security advantages:
+
+| Security Feature | Description |
+|-----------------|-------------|
+| **API Proxying** | Backend API calls routed through `/api/*` - hides backend server details from clients |
+| **CORS Protection** | Cross-origin requests handled at proxy level, preventing direct backend access |
+| **Request Filtering** | Nginx can filter malicious requests before they reach the application |
+| **SSL Termination** | HTTPS handled at Nginx, simplifying backend certificate management |
+| **Rate Limiting** | Can throttle requests to prevent DDoS and brute-force attacks |
+| **Static Asset Caching** | Reduces backend load by serving cached React build files |
+
+**Nginx Configuration Snippet:**
+```nginx
+location /api/ {
+    proxy_pass http://backend:8000/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
 
 **Environment Variables Required:**
 
@@ -219,14 +269,14 @@ docker push yourusername/chemlab-frontend:latest
 # Backend (.env)
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_KEY=your-service-role-key
-MQTT_BROKER=your-mqtt-broker.com
-MQTT_PORT=8883
+MQTT_BROKER=<internal-mqtt-vm-ip>
+MQTT_PORT=1883
 MQTT_USER=your-mqtt-user
 MQTT_PASS=your-mqtt-password
 
 # Frontend (.env)
-VITE_API_URL=https://your-backend-cloudrun-url
-VITE_WS_URL=wss://your-backend-cloudrun-url/ws
+VITE_API_URL=http://<backend-vm-ip>:8000
+VITE_WS_URL=ws://<backend-vm-ip>:8000/ws
 ```
 
 ### 🐍 Why Miniconda? (Face Recognition Dependencies)
