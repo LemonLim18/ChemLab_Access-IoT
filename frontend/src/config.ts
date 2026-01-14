@@ -3,22 +3,16 @@
 
 // Get API base URL from environment or fallback to current hostname
 const getApiUrl = (): string => {
-  // In production (Docker), use environment variable
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  // In development, use current hostname
-  return `http://${window.location.hostname}:8000`;
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  // Let it be empty so relative paths work (e.g. /api/state)
+  return '';
 };
 
-// Get WebSocket URL from environment or fallback to current hostname
 const getWsUrl = (): string => {
-  // In production (Docker), use environment variable
-  if (import.meta.env.VITE_WS_URL) {
-    return import.meta.env.VITE_WS_URL;
-  }
-  // In development, use current hostname
-  return `ws://${window.location.hostname}:8000/ws`;
+  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
+  // Use relative path for proxy
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws`;
 };
 
 export const API_URL = getApiUrl();

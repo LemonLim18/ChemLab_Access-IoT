@@ -576,3 +576,114 @@ MIT License - Feel free to use and modify for your projects.
 *Built with ❤️ for secure chemical storage management*
 
 **Last Updated:** January 2026
+
+---
+
+## 🐳 Docker & Cloud Deployment
+
+The application can be containerized and deployed to Google Cloud Platform (GCP) for production use.
+
+### Docker Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    GCP Cloud Infrastructure                  │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────┐      ┌─────────────────────┐       │
+│  │  Frontend VM        │      │  Backend VM          │       │
+│  │  (Nginx + React)    │      │  (FastAPI + dlib)    │       │
+│  │  Port 80 (Public)   │──────│  Port 8000 (Internal)│       │
+│  │                     │ 10.x │                      │       │
+│  │  /api/* → proxy ────┼──────┼──→ Backend API       │       │
+│  │  /ws   → proxy ─────┼──────┼──→ WebSocket         │       │
+│  └─────────────────────┘      └─────────────────────┘       │
+└─────────────────────────────────────────────────────────────┘
+            ▲                            ▲
+     Browser/Mobile              Raspberry Pi (MQTT)
+```
+
+### Quick Start (Local Docker)
+
+```bash
+docker-compose up -d --build
+docker-compose logs -f
+```
+
+### GCP Deployment
+
+**VM Specifications (Minimal):**
+
+| Resource | Specification | Cost |
+|----------|---------------|------|
+| Machine Type | e2-small (2 vCPU, 2GB) | ~$13/mo |
+| Boot Disk | 20GB SSD | ~$2/mo |
+| OS | Ubuntu 22.04 LTS | Free |
+
+> Use `e2-medium` (4GB RAM) during initial build for dlib compilation.
+
+**Firewall Rules (VPC Network → Firewall):**
+
+| Port | Purpose |
+|------|---------|
+| 80 | Frontend Dashboard |
+| 1883 | MQTT Broker |
+
+### Nginx Reverse Proxy (Best Practice)
+
+Frontend proxies API requests to the backend over **internal network**:
+
+```nginx
+# frontend/nginx.conf
+location /api/ {
+    proxy_pass http://10.128.0.4:8000/api/;  # Backend Internal IP
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+}
+
+location /ws {
+    proxy_pass http://10.128.0.4:8000/ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+**Benefits:**
+- ✅ Backend not exposed to public internet
+- ✅ No need to rebuild frontend when IPs change
+- ✅ Faster internal GCP network communication
+
+### Docker Hub Workflow
+
+```bash
+# Build and push (local machine)
+cd backend && docker build -t USER/chemlab-backend:latest . && docker push USER/chemlab-backend:latest
+cd frontend && docker build -t USER/chemlab-frontend:latest . && docker push USER/chemlab-frontend:latest
+
+# Deploy (GCP VM)
+docker pull USER/chemlab-backend:latest
+docker-compose up -d
+```
+
+### DNS Fix (Container Cannot Resolve External Domains)
+
+Add to `docker-compose.yml`:
+
+```yaml
+services:
+  backend:
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+```
+
+### Docker Files
+
+| File | Purpose |
+|------|---------|
+| `backend/Dockerfile` | FastAPI + face_recognition |
+| `frontend/Dockerfile` | Multi-stage Node.js + Nginx |
+| `frontend/nginx.conf` | Reverse proxy + SPA routing |
+| `*/docker-compose.yml` | Standalone service deployment |
+

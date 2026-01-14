@@ -85,6 +85,86 @@ const App: React.FC = () => {
   // Auto-lock countdown
   const [autoLockCountdown, setAutoLockCountdown] = useState<number | null>(null);
   
+  // Multi-cabinet demo (proof of concept)
+  const [selectedCabinet, setSelectedCabinet] = useState<number>(1);
+  
+  // Fake data for demo cabinets
+  const FAKE_CABINETS = [
+    { 
+      id: 2, 
+      name: 'Cabinet 2', 
+      status: 'offline' as const,  // Static demo data 
+      temperature: 19.5, 
+      humidity: 42, 
+      door_locked: true, 
+      last_access_by: 'Dr. Williams', 
+      last_access_time: '2026-01-14T10:30:00',
+      accessLog: [
+        { id: 'a1', timestamp: '2026-01-14T10:30:00', person_name: 'Dr. Williams', authorized: true },
+        { id: 'a2', timestamp: '2026-01-14T08:15:00', person_name: 'Dr. Park', authorized: true },
+        { id: 'a3', timestamp: '2026-01-13T16:45:00', person_name: 'Lab Tech Sarah', authorized: true },
+      ],
+      tempHistory: [
+        { time: '10:00', temp: 19.2, humidity: 41 },
+        { time: '10:15', temp: 19.4, humidity: 42 },
+        { time: '10:30', temp: 19.5, humidity: 42 },
+        { time: '10:45', temp: 19.3, humidity: 43 },
+        { time: '11:00', temp: 19.5, humidity: 42 },
+      ],
+      registeredUsers: [
+        { id: 'u1', name: 'Dr. Williams', registered_at: '2026-01-01' },
+        { id: 'u2', name: 'Dr. Park', registered_at: '2026-01-02' },
+        { id: 'u3', name: 'Lab Tech Sarah', registered_at: '2026-01-05' },
+      ],
+      thresholds: { temperature_min: 18.0, temperature_max: 24.0, humidity_min: 30, humidity_max: 60 },
+    },
+    { 
+      id: 3, 
+      name: 'Cabinet 3', 
+      status: 'alert' as const,  // RED status - intrusion!
+      temperature: 28.5,  // High temp - door was left open
+      humidity: 72,  // High humidity
+      door_locked: false,  // UNLOCKED - security breach!
+      last_access_by: 'Unknown Person', 
+      last_access_time: '2026-01-14T13:15:00',
+      accessLog: [
+        { id: 'b1', timestamp: '2026-01-14T13:15:00', person_name: 'Unknown Person', authorized: false },  // INTRUSION!
+        { id: 'b2', timestamp: '2026-01-14T09:00:00', person_name: 'Dr. Chen', authorized: true },
+        { id: 'b3', timestamp: '2026-01-13T17:30:00', person_name: 'Dr. Chen', authorized: true },
+      ],
+      tempHistory: [
+        { time: '12:00', temp: 21.5, humidity: 55 },
+        { time: '12:30', temp: 23.2, humidity: 60 },
+        { time: '13:00', temp: 25.8, humidity: 65 },
+        { time: '13:15', temp: 28.5, humidity: 72 },  // Spike after intrusion
+      ],
+      registeredUsers: [
+        { id: 'u4', name: 'Dr. Chen', registered_at: '2026-01-01' },
+        { id: 'u5', name: 'Prof. Kim', registered_at: '2026-01-03' },
+      ],
+      thresholds: { temperature_min: 15.0, temperature_max: 25.0, humidity_min: 35, humidity_max: 65 },
+    },
+  ];
+  // Get current cabinet data (real for Cabinet 1, fake for others)
+  const cabinetData = selectedCabinet === 1 
+    ? { ...storageState, name: 'Cabinet 1', status: 'online' as const }
+    : FAKE_CABINETS.find(c => c.id === selectedCabinet) || { ...storageState, name: 'Cabinet 1', status: 'online' as const };
+  
+  // Get cabinet-specific chart data (fake for demo cabinets)
+  const cabinetChartData = selectedCabinet === 1 
+    ? tempHistory 
+    : FAKE_CABINETS.find(c => c.id === selectedCabinet)?.tempHistory || [];
+  
+  // Get cabinet-specific access logs (fake for demo cabinets)
+  const cabinetAccessLog = selectedCabinet === 1 
+    ? accessLog 
+    : FAKE_CABINETS.find(c => c.id === selectedCabinet)?.accessLog || [];
+  
+  // Get cabinet-specific registered users (fake for demo cabinets)
+  const cabinetPersonnel = selectedCabinet === 1 
+    ? registeredUsers 
+    : FAKE_CABINETS.find(c => c.id === selectedCabinet)?.registeredUsers || [];
+  
   const notifRef = useRef<HTMLDivElement>(null);
   const bellRef = useRef<HTMLButtonElement>(null);
 
@@ -342,7 +422,7 @@ const App: React.FC = () => {
   const handleCapture = async () => {
     setIsCapturing(true);
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/trigger`, {
+      const res = await fetch(api.trigger, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: 'capture' })
@@ -360,7 +440,7 @@ const App: React.FC = () => {
   
   const handleLock = async () => {
     try {
-      await fetch(`http://${window.location.hostname}:8000/api/trigger`, {
+      await fetch(api.trigger, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: 'lock' })
@@ -373,7 +453,7 @@ const App: React.FC = () => {
   
   const handleUnlock = async () => {
     try {
-      await fetch(`http://${window.location.hostname}:8000/api/trigger`, {
+      await fetch(api.trigger, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: 'unlock' })
@@ -475,7 +555,7 @@ const App: React.FC = () => {
     
     if (formValues) {
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/register-face`, {
+        const res = await fetch(api.registerFace, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formValues)
@@ -507,7 +587,7 @@ const App: React.FC = () => {
     
     if (result.isConfirmed) {
       try {
-        await fetch(`http://${window.location.hostname}:8000/api/registered-users/${userId}`, {
+        await fetch(api.deleteUser(userId), {
           method: 'DELETE'
         });
         setRegisteredUsers(prev => prev.filter(u => u.id !== userId));
@@ -540,7 +620,7 @@ const App: React.FC = () => {
 
   const handleSaveThresholds = async () => {
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/thresholds`, {
+      const res = await fetch(api.thresholds, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(thresholds)
@@ -700,7 +780,7 @@ const App: React.FC = () => {
       });
       
       try {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/register-face`, {
+        const res = await fetch(api.registerFace, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -751,16 +831,16 @@ const App: React.FC = () => {
   
   // ========== HELPER FUNCTIONS ==========
   const getTempStatus = () => {
-    const { temperature } = storageState;
-    if (temperature > DEFAULT_THRESHOLDS.temperature_max) return 'danger';
-    if (temperature < DEFAULT_THRESHOLDS.temperature_min) return 'danger';
+    const temperature = cabinetData.temperature;
+    if (temperature > thresholds.temperature_max) return 'danger';
+    if (temperature < thresholds.temperature_min) return 'danger';
     return 'normal';
   };
   
   const getHumidityStatus = () => {
-    const { humidity } = storageState;
-    if (humidity > DEFAULT_THRESHOLDS.humidity_max) return 'danger';
-    if (humidity < DEFAULT_THRESHOLDS.humidity_min) return 'danger';
+    const humidity = cabinetData.humidity;
+    if (humidity > thresholds.humidity_max) return 'danger';
+    if (humidity < thresholds.humidity_min) return 'danger';
     return 'normal';
   };
   
@@ -1037,6 +1117,37 @@ const App: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left Column - Status Cards */}
             <div className="lg:col-span-2 space-y-6">
+              {/* Cabinet Selector Tabs */}
+              <div className="flex items-center gap-2 mb-4 p-1 bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-x-auto">
+                {[
+                  { id: 1, name: 'Cabinet 1', status: 'online', isStatic: false },
+                  { id: 2, name: 'Cabinet 2', status: 'offline', isStatic: true },
+                  { id: 3, name: 'Cabinet 3', status: 'alert', isStatic: true },
+                ].map(cabinet => (
+                  <button
+                    key={cabinet.id}
+                    onClick={() => setSelectedCabinet(cabinet.id)}
+                    className={`
+                      flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all duration-200 whitespace-nowrap
+                      ${selectedCabinet === cabinet.id 
+                        ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shadow-lg shadow-cyan-500/10' 
+                        : 'text-slate-400 hover:text-white hover:bg-slate-700/50'}
+                    `}
+                  >
+                    <FlaskConicalIcon className="w-4 h-4" />
+                    <span className="font-medium text-sm">{cabinet.name}</span>
+                    {cabinet.isStatic && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-600/50 text-slate-400 font-medium">Static</span>
+                    )}
+                    <span className={`w-2 h-2 rounded-full ${
+                      cabinet.status === 'online' ? 'bg-emerald-400' : 
+                      cabinet.status === 'alert' ? 'bg-red-500 animate-pulse' : 
+                      'bg-slate-500'
+                    }`} />
+                  </button>
+                ))}
+              </div>
+              
               {/* Environment Monitoring - Responsive Grid: 1 col mobile, 2 cols tablet (Door spans full width) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Temperature */}
@@ -1053,7 +1164,7 @@ const App: React.FC = () => {
                     
                     <div className="flex flex-col">
                       <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Temperature</span>
-                      <span className="text-2xl font-bold font-mono text-white leading-none mt-1">{storageState.temperature.toFixed(1)}°C</span>
+                      <span className="text-2xl font-bold font-mono text-white leading-none mt-1">{cabinetData.temperature.toFixed(1)}°C</span>
                     </div>
 
                     <div className={`ml-auto px-2.5 py-1 rounded-full text-xs font-semibold border ${
@@ -1091,7 +1202,7 @@ const App: React.FC = () => {
                     
                     <div className="flex flex-col">
                       <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Humidity</span>
-                      <span className="text-2xl font-bold font-mono text-white leading-none mt-1">{storageState.humidity}%</span>
+                      <span className="text-2xl font-bold font-mono text-white leading-none mt-1">{cabinetData.humidity}%</span>
                     </div>
 
                      {/* Status Badge */}
@@ -1123,34 +1234,40 @@ const App: React.FC = () => {
                 <div className={`
                   md:col-span-2
                   p-5 rounded-2xl border backdrop-blur-md transition-all duration-300
-                  ${storageState.door_locked 
+                  ${cabinetData.door_locked 
                     ? 'bg-green-500/10 border-green-500/30' 
-                    : 'bg-amber-500/10 border-amber-500/30'}
+                    : 'bg-red-500/10 border-red-500/30 shadow-[0_0_30px_-10px_rgba(239,68,68,0.3)]'}
                 `}>
                   <div className="flex items-center gap-4 mb-2">
-                    <div className={`p-3 rounded-xl ${storageState.door_locked ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 'bg-gradient-to-br from-amber-500 to-orange-500'} shadow-lg`}>
-                      {storageState.door_locked ? <Lock className="w-6 h-6 text-white" /> : <Unlock className="w-6 h-6 text-white" />}
+                    <div className={`p-3 rounded-xl ${cabinetData.door_locked ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 'bg-gradient-to-br from-red-500 to-orange-500'} shadow-lg`}>
+                      {cabinetData.door_locked ? <Lock className="w-6 h-6 text-white" /> : <Unlock className="w-6 h-6 text-white" />}
                     </div>
                     
                     <div className="flex flex-col">
                       <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Door Status</span>
-                      <span className={`text-2xl font-bold font-mono leading-none mt-1 ${storageState.door_locked ? 'text-green-400' : 'text-amber-400'}`}>
-                        {storageState.door_locked ? 'CLOSED' : 'OPEN'}
+                      <span className={`text-2xl font-bold font-mono leading-none mt-1 ${cabinetData.door_locked ? 'text-green-400' : 'text-red-400'}`}>
+                        {cabinetData.door_locked ? 'CLOSED' : 'OPEN'}
                       </span>
                       {/* Auto-lock Countdown */}
-                      {autoLockCountdown !== null && autoLockCountdown > 0 && (
+                      {selectedCabinet === 1 && autoLockCountdown !== null && autoLockCountdown > 0 && (
                         <span className="text-sm text-amber-300 mt-1 animate-pulse">
                           Auto-lock in {autoLockCountdown}s
+                        </span>
+                      )}
+                      {/* Intrusion Alert for Cabinet 3 */}
+                      {!cabinetData.door_locked && 'status' in cabinetData && cabinetData.status === 'alert' && (
+                        <span className="text-sm text-red-400 mt-1 animate-pulse font-semibold">
+                          ⚠️ SECURITY BREACH DETECTED
                         </span>
                       )}
                     </div>
 
                     <div className={`ml-auto px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                      storageState.door_locked 
+                      cabinetData.door_locked 
                         ? 'bg-green-500/20 text-green-300 border-green-500/30' 
-                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : 'bg-red-500/20 text-red-300 border-red-500/30'
                     }`}>
-                      {storageState.door_locked ? 'Secure' : 'Unlocked'}
+                      {cabinetData.door_locked ? 'Secure' : 'BREACH!'}
                     </div>
                   </div>
                   
@@ -1161,9 +1278,9 @@ const App: React.FC = () => {
                       <span className="text-slate-300">Auto-lock 15s</span>
                     </div>
                     <div className="text-xs text-slate-500">
-                      {storageState.door_locked && storageState.door_closed_since 
-                        ? `Secured for ${timeAgo(storageState.door_closed_since).replace(' ago', '')}` 
-                        : "Please close door"
+                      {cabinetData.door_locked 
+                        ? `Secured` 
+                        : "⚠️ Unauthorized access detected"
                       }
                     </div>
                   </div>
@@ -1179,9 +1296,9 @@ const App: React.FC = () => {
                     <Thermometer className="w-5 h-5 text-orange-400" />
                     Temperature History
                   </h3>
-                  {tempHistory.length > 1 ? (
+                  {cabinetChartData.length > 1 ? (
                     <ResponsiveContainer width="100%" height={180}>
-                      <LineChart data={tempHistory}>
+                      <LineChart data={cabinetChartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                         <XAxis 
                           dataKey="time" 
@@ -1209,9 +1326,9 @@ const App: React.FC = () => {
                     <Droplets className="w-5 h-5 text-cyan-400" />
                     Humidity History
                   </h3>
-                  {tempHistory.length > 1 ? (
+                  {cabinetChartData.length > 1 ? (
                     <ResponsiveContainer width="100%" height={180}>
-                      <LineChart data={tempHistory}>
+                      <LineChart data={cabinetChartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                         <XAxis 
                           dataKey="time" 
@@ -1306,7 +1423,7 @@ const App: React.FC = () => {
                   Recent Access
                 </h3>
                 <div className="space-y-3">
-                  {accessLog.slice(0, 5).map(log => (
+                  {cabinetAccessLog.slice(0, 5).map(log => (
                     <div 
                       key={log.id}
                       className={`
@@ -1337,7 +1454,7 @@ const App: React.FC = () => {
                       </span>
                     </div>
                   ))}
-                  {accessLog.length === 0 && (
+                  {cabinetAccessLog.length === 0 && (
                     <p className="text-center text-slate-500 py-8">No access attempts yet</p>
                   )}
                 </div>
@@ -1386,16 +1503,22 @@ const App: React.FC = () => {
                   Authorized Personnel
                 </h3>
                 <div className="space-y-2">
-                  {registeredUsers.slice(0, 4).map(user => (
+                  {cabinetPersonnel.slice(0, 4).map(user => (
                     <div key={user.id} className="flex items-center gap-3 p-2 md:py-5 md:px-5 rounded-full bg-slate-700/30 hover:bg-slate-600/30 transition">
-                      <img 
-                        src={user.face_image_url} 
-                        alt={user.name}
-                        className="w-10 h-10 rounded-full object-cover border-2 border-cyan-500/30"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://via.placeholder.com/40?text=?';
-                        }}
-                      />
+                      {(user as any).face_image_url ? (
+                        <img 
+                          src={(user as any).face_image_url} 
+                          alt={user.name}
+                          className="w-10 h-10 rounded-full object-cover border-2 border-cyan-500/30"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/40?text=?';
+                          }}
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500/30 to-teal-500/30 border-2 border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-sm">
+                          {user.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
                       <div className="flex-1">
                         <p className="text-sm font-medium">{user.name}</p>
                         <p className="text-xs text-slate-400">Authorized</p>
@@ -1403,7 +1526,7 @@ const App: React.FC = () => {
                       <CheckCircle className="w-4 h-4 text-green-400" />
                     </div>
                   ))}
-                  {registeredUsers.length === 0 && (
+                  {cabinetPersonnel.length === 0 && (
                     <p className="text-center text-slate-500 py-4">No users registered</p>
                   )}
                 </div>
@@ -1658,50 +1781,87 @@ const App: React.FC = () => {
             {/* Environment Thresholds */}
             <div className="p-6 rounded-2xl bg-slate-800/50 border border-slate-700/50 backdrop-blur-md">
               <h3 className="font-semibold mb-4">Environment Thresholds</h3>
+              
+              {/* Cabinet Selector Tabs */}
+              <div className="flex items-center gap-2 mb-4 p-1 bg-slate-700/30 rounded-xl overflow-x-auto">
+                {[
+                  { id: 1, name: 'Cabinet 1', status: 'online', isStatic: false },
+                  { id: 2, name: 'Cabinet 2', status: 'offline', isStatic: true },
+                  { id: 3, name: 'Cabinet 3', status: 'alert', isStatic: true },
+                ].map(cabinet => (
+                  <button
+                    key={cabinet.id}
+                    onClick={() => setSelectedCabinet(cabinet.id)}
+                    className={`
+                      flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 whitespace-nowrap text-sm
+                      ${selectedCabinet === cabinet.id 
+                        ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' 
+                        : 'text-slate-400 hover:text-white hover:bg-slate-600/50'}
+                    `}
+                  >
+                    <FlaskConicalIcon className="w-4 h-4" />
+                    <span className="font-medium">{cabinet.name}</span>
+                    {cabinet.isStatic && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-600/50 text-slate-400 font-medium">Static</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              
+              {/* Threshold Inputs */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-slate-400 mb-1">Min Temp (°C)</label>
                   <input 
                     type="number" 
-                    value={thresholds.temperature_min}
-                    onChange={(e) => setThresholds({...thresholds, temperature_min: parseFloat(e.target.value)})}
-                    className="w-full px-4 py-2 rounded-lg bg-slate-700/50 border border-slate-600 focus:border-cyan-500 focus:outline-none"
+                    value={selectedCabinet === 1 ? thresholds.temperature_min : (FAKE_CABINETS.find(c => c.id === selectedCabinet)?.thresholds?.temperature_min || 18)}
+                    onChange={(e) => selectedCabinet === 1 && setThresholds({...thresholds, temperature_min: parseFloat(e.target.value)})}
+                    disabled={selectedCabinet !== 1}
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none ${selectedCabinet === 1 ? 'bg-slate-700/50 border-slate-600 focus:border-cyan-500' : 'bg-slate-700/30 border-slate-700 text-slate-400 cursor-not-allowed'}`}
                   />
                 </div>
                 <div>
                   <label className="block text-sm text-slate-400 mb-1">Max Temp (°C)</label>
                   <input 
                     type="number" 
-                    value={thresholds.temperature_max}
-                    onChange={(e) => setThresholds({...thresholds, temperature_max: parseFloat(e.target.value)})}
-                    className="w-full px-4 py-2 rounded-lg bg-slate-700/50 border border-slate-600 focus:border-cyan-500 focus:outline-none"
+                    value={selectedCabinet === 1 ? thresholds.temperature_max : (FAKE_CABINETS.find(c => c.id === selectedCabinet)?.thresholds?.temperature_max || 25)}
+                    onChange={(e) => selectedCabinet === 1 && setThresholds({...thresholds, temperature_max: parseFloat(e.target.value)})}
+                    disabled={selectedCabinet !== 1}
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none ${selectedCabinet === 1 ? 'bg-slate-700/50 border-slate-600 focus:border-cyan-500' : 'bg-slate-700/30 border-slate-700 text-slate-400 cursor-not-allowed'}`}
                   />
                 </div>
                 <div>
                   <label className="block text-sm text-slate-400 mb-1">Min Humidity (%)</label>
                   <input 
                     type="number" 
-                    value={thresholds.humidity_min}
-                    onChange={(e) => setThresholds({...thresholds, humidity_min: parseFloat(e.target.value)})}
-                    className="w-full px-4 py-2 rounded-lg bg-slate-700/50 border border-slate-600 focus:border-cyan-500 focus:outline-none"
+                    value={selectedCabinet === 1 ? thresholds.humidity_min : (FAKE_CABINETS.find(c => c.id === selectedCabinet)?.thresholds?.humidity_min || 30)}
+                    onChange={(e) => selectedCabinet === 1 && setThresholds({...thresholds, humidity_min: parseFloat(e.target.value)})}
+                    disabled={selectedCabinet !== 1}
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none ${selectedCabinet === 1 ? 'bg-slate-700/50 border-slate-600 focus:border-cyan-500' : 'bg-slate-700/30 border-slate-700 text-slate-400 cursor-not-allowed'}`}
                   />
                 </div>
                 <div>
                   <label className="block text-sm text-slate-400 mb-1">Max Humidity (%)</label>
                   <input 
                     type="number" 
-                    value={thresholds.humidity_max}
-                    onChange={(e) => setThresholds({...thresholds, humidity_max: parseFloat(e.target.value)})}
-                    className="w-full px-4 py-2 rounded-lg bg-slate-700/50 border border-slate-600 focus:border-cyan-500 focus:outline-none"
+                    value={selectedCabinet === 1 ? thresholds.humidity_max : (FAKE_CABINETS.find(c => c.id === selectedCabinet)?.thresholds?.humidity_max || 60)}
+                    onChange={(e) => selectedCabinet === 1 && setThresholds({...thresholds, humidity_max: parseFloat(e.target.value)})}
+                    disabled={selectedCabinet !== 1}
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none ${selectedCabinet === 1 ? 'bg-slate-700/50 border-slate-600 focus:border-cyan-500' : 'bg-slate-700/30 border-slate-700 text-slate-400 cursor-not-allowed'}`}
                   />
                 </div>
               </div>
-              <button
-                onClick={handleSaveThresholds}
-                className="mt-4 w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-600 text-white font-medium hover:from-cyan-600 hover:to-teal-700 transition-all shadow-lg shadow-cyan-500/20"
-              >
-                Save Thresholds
-              </button>
+              
+              {selectedCabinet === 1 ? (
+                <button
+                  onClick={handleSaveThresholds}
+                  className="mt-4 w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-600 text-white font-medium hover:from-cyan-600 hover:to-teal-700 transition-all shadow-lg shadow-cyan-500/20"
+                >
+                  Save Thresholds
+                </button>
+              ) : (
+                <p className="mt-4 text-center text-sm text-slate-500">Static demo data - thresholds are read-only</p>
+              )}
             </div>
             
             {/* System Info */}

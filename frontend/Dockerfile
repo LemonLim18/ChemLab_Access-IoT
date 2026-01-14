@@ -16,8 +16,8 @@ RUN npm ci --legacy-peer-deps
 COPY . .
 
 # Build argument for API URL (passed at build time)
-ARG VITE_API_URL=http://localhost:8000
-ARG VITE_WS_URL=ws://localhost:8000/ws
+ARG VITE_API_URL
+ARG VITE_WS_URL
 
 # Set environment variables for build
 ENV VITE_API_URL=$VITE_API_URL

@@ -12,6 +12,9 @@ services:
       dockerfile: Dockerfile
     container_name: chemlab-backend
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     ports:
       - "8000:8000"
     environment:
