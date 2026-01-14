@@ -247,19 +247,30 @@ The frontend container uses **Nginx** as a reverse proxy, providing critical sec
 
 | Security Feature | Description |
 |-----------------|-------------|
-| **API Proxying** | Backend API calls routed through `/api/*` - hides backend server details from clients |
-| **CORS Protection** | Cross-origin requests handled at proxy level, preventing direct backend access |
-| **Request Filtering** | Nginx can filter malicious requests before they reach the application |
-| **SSL Termination** | HTTPS handled at Nginx, simplifying backend certificate management |
-| **Rate Limiting** | Can throttle requests to prevent DDoS and brute-force attacks |
-| **Static Asset Caching** | Reduces backend load by serving cached React build files |
+| **API Proxying** | Backend API calls routed through `/api/*` - hides backend server topology from clients |
+| **Security Headers** | Enforces `X-Frame-Options`, `X-XSS-Protection`, and `X-Content-Type-Options` |
+| **Static Asset Caching** | Reduces backend load by serving cached React build files (1-year expiry) |
+| **SPA Routing** | Handles client-side routing by serving `index.html` for all paths |
 
 **Nginx Configuration Snippet:**
 ```nginx
-location /api/ {
-    proxy_pass http://backend:8000/api/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
+server {
+    listen 80;
+    
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    
+    # Static caching
+    location ~* \.(js|css|png)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # API Proxying
+    location /api/ {
+        proxy_pass http://backend:8000/api/;
+    }
 }
 ```
 
@@ -298,22 +309,25 @@ pip install dlib  # ❌ Often fails on Windows!
 
 #### The Solution: Miniconda
 
-Miniconda provides **pre-compiled binary packages** through conda-forge, bypassing the need for local C++ compilation entirely:
+### 🐍 Hybrid Dependency Strategy: Local vs. Cloud
 
+We use a **hybrid approach** to handle the complex C++ dependencies of `face_recognition` (specifically `dlib`):
+
+| Environment | OS | Dependency Manager | Reason |
+|-------------|----|--------------------|--------|
+| **Local Development** | Windows 10/11 | **Miniconda** | **Mandatory.** Compiling `dlib` from source on Windows is notoriously difficult (requires Visual Studio C++ Build Tools). Conda provides pre-compiled binaries (`conda install dlib`), bypassing compilation errors. |
+| **Cloud Deployment** | Linux (Docker) | **Pip + System Tools** | **Standard.** The Docker container uses a lightweight Linux base. Compiling `dlib` from source on Linux is reliable and straightforward using standard tools (`cmake`, `gcc`). We use `pip` in the container to keep it standard and lightweight. |
+
+#### Why Miniconda for Local Windows?
+
+Installing `dlib` via `pip` on Windows often fails with:
+- `CMake error: No CMAKE_C_COMPILER could be found`
+- `error: Microsoft Visual C++ 14.0 or greater is required`
+
+Miniconda solves this by fetching pre-built binaries from `conda-forge`:
 ```bash
-# ✅ Works reliably on Windows, macOS, and Linux
-conda install -c conda-forge dlib -y
+conda install -c conda-forge dlib -y  # ✅ Works instantly on Windows
 ```
-
-**Benefits of Miniconda:**
-
-| Benefit | Description |
-|---------|-------------|
-| **Pre-compiled binaries** | No C++ compiler required |
-| **Dependency management** | Automatically handles complex native dependencies |
-| **Environment isolation** | Clean separation from system Python |
-| **Cross-platform** | Same commands work on Windows, macOS, Linux |
-| **Reproducibility** | Consistent environments across machines |
 
 #### How Face Recognition Works
 
