@@ -22,6 +22,28 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
 
 ---
 
+## 🖼️ Interface Showcase
+
+> **Note:** Screenshots coming soon!
+
+### 📊 Real-Time Dashboard
+*Monitor temperature, humidity, and door status instantly.*
+![alt text](image-3.png)
+
+### 📈 Access History Logs
+*Show access history with granted and denied logs.*
+![alt text](image-4.png)
+
+### 👤 User Management
+*Register authorized personnel with face recognition.*
+![alt text](image-5.png)
+
+### ⚙️ Settings
+*Configure environment thresholds per-cabinet.*
+![alt text](image-6.png)
+
+---
+
 ## 🆕 Latest Updates ([2026-01-17])
 
 ### 🔐 HTTPS Security Implementation
@@ -372,7 +394,7 @@ Beyond HTTPS, the system implements multiple layers of security:
 
 ### Docker Architecture
 
-```mermaid
+```
 ┌─────────────────────────────────────────────────────────────┐
 │                    GCP Cloud Infrastructure                  │
 ├─────────────────────────────────────────────────────────────┤
@@ -392,7 +414,10 @@ Beyond HTTPS, the system implements multiple layers of security:
 ---
 
 ## 🔌 Hardware Setup (IoT)
-
+### Sketch IoT Diagram
+![alt text](image-7.png)
+### Real IoT Diagram
+![alt text](image-8.png)
 ### Raspberry Pi Configuration
 
 ```bash
