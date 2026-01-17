@@ -26,6 +26,10 @@ services:
       # Supabase credentials
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
+      # MongoDB
+      - MONGO_URI=${MONGO_URI}
+      # Email
+      - RESEND_API_KEY=${RESEND_API_KEY}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

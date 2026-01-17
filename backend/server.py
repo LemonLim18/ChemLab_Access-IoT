@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import uuid
 from threading import Lock
 import io
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # Load environment variables
 load_dotenv()
@@ -37,6 +38,12 @@ from supabase import create_client, Client
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://likyygzbjgrzsdyzsira.supabase.co/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_jU2_op2cAI7Fhbw9ygEt4g_hl-suGcf")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ========== MONGODB ==========
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+mongo_client = AsyncIOMotorClient(MONGO_URI)
+db = mongo_client.chemlab
+telemetry_collection = db.telemetry
 
 # ========== APP SETUP ==========
 app = FastAPI(title="Chemical Lab Storage API")
@@ -144,6 +151,11 @@ def on_message(client, userdata, msg):
             if main_loop:
                 asyncio.run_coroutine_threadsafe(
                     manager.broadcast({"type": "state_update", "data": lab_storage_state}),
+                    main_loop
+                )
+                # Save to MongoDB
+                asyncio.run_coroutine_threadsafe(
+                    save_telemetry(payload),
                     main_loop
                 )
         
@@ -360,6 +372,18 @@ def save_access_log(log_entry: Dict):
     except Exception as e:
         print(f"[Supabase] Error saving access log: {e}")
 
+async def save_telemetry(payload: dict):
+    """Save telemetry data to MongoDB."""
+    try:
+        # Ensure timestamp is present
+        if "timestamp" not in payload:
+            payload["timestamp"] = datetime.now().isoformat()
+            
+        await telemetry_collection.insert_one(payload)
+        # print("[MongoDB] Telemetry saved")
+    except Exception as e:
+        print(f"[MongoDB] Error saving telemetry: {e}")
+
 # ========== ANOMALY MONITOR ==========
 async def anomaly_monitor():
     """Background loop to check for environmental anomalies."""
@@ -514,6 +538,17 @@ class UserConfig(BaseModel):
 async def get_state():
     """Get current storage state."""
     return lab_storage_state
+
+@app.get("/api/history")
+async def get_history(limit: int = 100):
+    """Get historical telemetry data from MongoDB."""
+    try:
+        cursor = telemetry_collection.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit)
+        history = await cursor.to_list(length=limit)
+        return history
+    except Exception as e:
+        print(f"[API] Error fetching history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/access-logs")
 async def get_access_logs(limit: int = 50):
