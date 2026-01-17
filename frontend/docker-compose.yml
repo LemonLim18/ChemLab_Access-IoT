@@ -9,18 +9,32 @@
 # Update .env and rebuild when backend IP changes
 
 services:
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        # These are baked into the frontend at build time
-        - VITE_API_URL=${API_URL}
-        - VITE_WS_URL=${WS_URL}
+    image: miinning/chemlab-frontend:latest
+    pull_policy: if_not_present   # <--- Checks if image exists first
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     # These are baked into the frontend at build time
+    #     - VITE_API_URL=${API_URL}
+    #     - VITE_WS_URL=${WS_URL}
     container_name: chemlab-frontend
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
       interval: 30s

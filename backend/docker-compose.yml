@@ -7,9 +7,11 @@
 
 services:
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    image: miinning/chemlab-backend:latest
+    pull_policy: always
     container_name: chemlab-backend
     restart: unless-stopped
     dns:

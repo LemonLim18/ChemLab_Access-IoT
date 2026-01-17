@@ -29,14 +29,38 @@ services:
       # Supabase credentials
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
+      # MongoDB
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+    depends_on:
+      - mongo
     networks:
       - chemlab-network
+
+  # ===== MongoDB =====
+  mongo:
+    image: mongo:latest
+    container_name: chemlab-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - chemlab-network
+
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
   # ===== Frontend (React + Nginx) =====
   frontend:
@@ -51,6 +75,10 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
     depends_on:
       - backend
     healthcheck:
@@ -65,3 +93,6 @@ services:
 networks:
   chemlab-network:
     driver: bridge
+
+volumes:
+  mongo_data:

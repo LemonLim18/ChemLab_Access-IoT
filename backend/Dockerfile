@@ -41,6 +41,8 @@ ENV MQTT_USER=""
 ENV MQTT_PASS=""
 ENV SUPABASE_URL=""
 ENV SUPABASE_KEY=""
+ENV MONGO_URI="mongodb://localhost:27017"
+ENV RESEND_API_KEY=""
 
 # Health check endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

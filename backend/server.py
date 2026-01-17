@@ -379,10 +379,11 @@ async def save_telemetry(payload: dict):
         if "timestamp" not in payload:
             payload["timestamp"] = datetime.now().isoformat()
             
-        await telemetry_collection.insert_one(payload)
-        # print("[MongoDB] Telemetry saved")
+        result = await telemetry_collection.insert_one(payload)
+        print(f"[MongoDB] SUCCESS: Telemetry saved. ID: {result.inserted_id}")
+        print(f"[MongoDB] payload: {json.dumps(payload)}")
     except Exception as e:
-        print(f"[MongoDB] Error saving telemetry: {e}")
+        print(f"[MongoDB] FAILED to save telemetry: {e}")
 
 # ========== ANOMALY MONITOR ==========
 async def anomaly_monitor():

@@ -706,8 +706,18 @@ except KeyboardInterrupt:
     print("\n[SHUTDOWN] Received interrupt signal...")
 finally:
     print("[CLEANUP] Cleaning up GPIO...")
+    try:
+        dht_sensor.exit()
+    except Exception:
+        pass
+        
+    try:
+        servo_pwm.stop()
+        buzzer_pwm.stop()
+    except Exception:
+        pass
+        
     GPIO.cleanup()
-    servo_pwm.stop()
     client.loop_stop()
     client.disconnect()
     executor.shutdown(wait=False)

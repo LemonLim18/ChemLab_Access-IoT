@@ -66,7 +66,7 @@ const App: React.FC = () => {
   const [theme] = useState<'dark'>('dark'); // Chemical lab uses dark theme
   
   // Temperature history for chart
-  const [tempHistory, setTempHistory] = useState<{ time: string, temp: number, humidity: number }[]>([]);
+  const [tempHistory, setTempHistory] = useState<{ time: string, temp: number, humidity: number, timestamp?: string }[]>([]);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   
   // Login form states
@@ -312,6 +312,25 @@ const App: React.FC = () => {
         const data = await threshRes.json();
         setThresholds(data);
       }
+
+      // Fetch history
+      const historyRes = await fetch(api.history);
+      if (historyRes.ok) {
+        const historyData = await historyRes.json();
+        // Convert to chart format (reverse to have oldest first)
+        const formattedHistory = historyData.reverse().map((item: any) => {
+           // Parse timestamp to readable time
+           const date = new Date(item.timestamp);
+           const timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+           return {
+             time: timeLabel,
+             temp: item.temperature_celsius || item.temp,
+             humidity: item.humidity_percent || item.humidity,
+             timestamp: item.timestamp
+           };
+        });
+        setTempHistory(formattedHistory);
+      }
     } catch (error) {
       console.error('[App] Error fetching initial data:', error);
     }
@@ -346,14 +365,31 @@ const App: React.FC = () => {
           
           // Track temperature history for chart
           setTempHistory(prev => {
-            const now = new Date();
-            const timeLabel = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            // Use server timestamp if available, otherwise browser time
+            const serverTimestamp = message.data.timestamp || message.data.last_update;
+            const date = serverTimestamp ? new Date(serverTimestamp) : new Date();
+            const timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            
+            // Avoid duplicate entries (same timestamp)
+            const lastEntry = prev[prev.length - 1];
+            if (lastEntry && lastEntry.time === timeLabel) {
+              // Update the last entry instead of adding duplicate
+              const updated = [...prev.slice(0, -1), { 
+                time: timeLabel, 
+                temp: message.data.temperature, 
+                humidity: message.data.humidity,
+                timestamp: serverTimestamp
+              }];
+              return updated;
+            }
+            
             const updated = [...prev, { 
               time: timeLabel, 
               temp: message.data.temperature, 
-              humidity: message.data.humidity 
+              humidity: message.data.humidity,
+              timestamp: serverTimestamp
             }];
-            return updated.slice(-20); // Keep last 20 readings
+            return updated.slice(-50); // Keep last 50 readings for better history
           });
           break;
           

@@ -28,4 +28,5 @@ export const api = {
   registerFace: `${API_URL}/api/register-face`,
   userFaceStatus: (userId: string) => `${API_URL}/api/user-face-status/${userId}`,
   deleteUser: (userId: string) => `${API_URL}/api/registered-users/${userId}`,
+  history: `${API_URL}/api/history`,
 };

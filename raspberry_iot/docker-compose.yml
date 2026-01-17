@@ -1,0 +1,35 @@
+services:
+  chemlab-iot:
+    image: chemlab-iot:latest
+    container_name: chemlab-iot-service
+    restart: unless-stopped
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # REQUIRED for Raspberry Pi hardware access
+    privileged: true
+    network_mode: host
+    
+    # Force DNS to Google to verify connectivity issues
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    env_file:
+      - .env
+
+    # Clean log rotation
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+
+    environment:
+      - TZ=Asia/Singapore
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

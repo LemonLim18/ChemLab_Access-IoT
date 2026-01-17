@@ -23,7 +23,6 @@ async def test_mongo():
             "temperature_celsius": 24.5,
             "humidity_percent": 45.2,
             "timestamp": datetime.now().isoformat(),
-            "source": "test_script"
         }
         
         print(f"Attempting to insert: {sample_data}")

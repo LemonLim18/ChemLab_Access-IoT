@@ -17,11 +17,29 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
 | ⏱️ **Live Countdown** | Real-time countdown displayed on dashboard showing time until auto-lock |
 | 📊 **Access Logging** | Complete access history with timestamps stored in Supabase |
 | 🔔 **Notification Center** | Slide-out panel with click-outside dismissal for system events |
-| 📈 **Historical Charts** | Temperature and humidity trends visualized with Recharts |
+| 📈 **Historical Charts** | 50-point history stored in **MongoDB Atlas** vs real-time updates via WebSocket |
+| 🛡️ **HTTPS Security** | End-to-end encryption using **Let's Encrypt** and Nginx SSL termination |
 
 ---
 
-## 🆕 Latest Updates
+## 🆕 Latest Updates ([2026-01-17])
+
+### 🔐 HTTPS Security Implementation
+
+![alt text](image-2.png)
+
+- **SSL/TLS Encryption**: Enabled HTTPS using **Let's Encrypt** and `nip.io` magic domain (e.g., `https://35.193.228.11.nip.io`).
+- **Nginx Termination**: Nginx handles SSL termination on port 443, proxying secure requests to the backend.
+- **Auto-Renewal**: Integrated `certbot` sidecar container for automatic certificate renewal.
+- **Firewall Config**: Configured GCP Firewall to allow HTTPS (443) traffic.
+
+### 💾 MongoDB Integration (Historical Data)
+
+- **MongoDB Atlas**: Migrated telemetry storage to MongoDB Atlas (Cloud) for persistence.
+- **Hybrid Data Visualization**: Frontend charts now load 50 historical points from MongoDB on load, then append real-time WebSocket updates seamlessly.
+- **Timezone Handling**: Fixed timezone issues to correctly display server timestamps (Singapore Time) versus browser local time.
+
+## 🆕 Previous Updates
 
 ### 🐳 Docker & GCP Cloud Deployment
 
@@ -80,8 +98,9 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
                            │ WebSocket + REST API
 ┌──────────────────────────▼──────────────────────────────────┐
 │                  Backend Server (FastAPI)                    │
-│                  http://localhost:8000                       │
+│                (Internal Docker Network)                     │
 │                                                              │
+│  • /api/history          - Fetch MongoDB historical data    │
 │  • /api/register-face    - Multi-image face registration    │
 │  • /api/trigger          - Remote capture/lock/unlock       │
 │  • /ws                   - Real-time WebSocket updates      │
@@ -106,6 +125,11 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
 │  │ • voice/femaleTalk.py - gTTS + mpg123               │    │
 │  │ • voice/maleTalk.py   - Festival/espeak-ng          │    │
 │  └─────────────────────────────────────────────────────┘    │
+│  │                                 │                        │
+│  │  ┌──────────────┐               ▼                        │
+│  │  │ MongoDB Atlas│◄───────────[Telemetry Data]            │
+│  │  │ (Cloud DB)   │                                        │
+│  │  └──────────────┘                                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -117,7 +141,7 @@ A comprehensive IoT-based chemical storage access control system featuring **AI 
 |-------|--------------|
 | **Frontend** | React 19, TypeScript, TailwindCSS, Recharts, SweetAlert2, Lucide Icons |
 | **Backend** | Python 3.11, FastAPI, face_recognition, paho-mqtt, Uvicorn |
-| **Database** | Supabase (PostgreSQL + Storage) |
+| **Database** | Supabase (Users/Logs) + MongoDB Atlas (Telemetry History) |
 | **IoT** | Raspberry Pi 2 Model B, RPi.GPIO, Adafruit_DHT, PiCamera |
 | **Voice** | gTTS, Festival, espeak-ng, mpg123 |
 | **Communication** | MQTT (paho-mqtt), WebSocket, REST API |
@@ -215,6 +239,15 @@ npm run dev
 
 ## 🐳 Docker Deployment Guide (Production)
 
+### 🌟 Why Docker?
+
+We utilize **Docker** containers to ensure a robust, enterprise-grade deployment:
+
+- **🔄 Reproducibility**: "It works on my machine" is solved. The exact same environment runs on development, testing, and production.
+- **📈 Scalability**: The stateless frontend and backend services can be horizontally scaled across multiple VMs behind a load balancer.
+- **🛡️ Fault Tolerance**: Containers are isolated. If the backend crashes, the frontend stays up (and vice versa). Docker Compose can automatically restart failed services.
+- **🚀 Rapid Deployment**: Updates are pushed as new image tags (`:latest`), allowing for rolling updates with minimal downtime.
+
 The deployment process consists of two main phases: **Containerization** (building images locally) and **Cloud Deployment** (running them on GCP VMs).
 
 ### Docker Files Reference
@@ -276,50 +309,83 @@ Our production environment uses **GCP Compute Engine** VMs in the `us-central1-c
    docker run -d -p 80:80 --name frontend yourusername/chemlab-frontend:latest
    ```
 
-5. **Firewall Configuration:**
-   - **HTTP (80)**: Allow from 0.0.0.0/0
-   - **MQTT (1883)**: Allow from internal VPC (10.128.0.0/9)
+5. **Firewall Configuration (GCP VPC):**
+   *Create firewall rules to strictly control ingress traffic:*
 
-### 🔒 Nginx Reverse Proxy - Security Benefits
+   | Rule Name | Target Tag | Port | Source IP | Purpose |
+   |-----------|------------|------|-----------|---------|
+   | `allow-http` | `http-server` | 80 (TCP) | `0.0.0.0/0` | ACME Challenge & Redirection |
+   | `allow-https` | `https-server` | 443 (TCP) | `0.0.0.0/0` | Secure Encrypted Web Traffic |
+   | `allow-mqtt-internal` | `mqtt-broker` | 1883 (TCP) | `10.128.0.0/9` | IoT Devices (Internal VPC Only) |
+   | `deny-backend-ext` | `backend` | 8000 (TCP) | `0.0.0.0/0` | **BLOCKED** (No public access) |
+
+   **GCP CLI Commands:**
+   ```bash
+   # Public Web Access
+   gcloud compute firewall-rules create allow-http-https \
+     --allow tcp:80,tcp:443 --target-tags=http-server,https-server
+     
+   # Internal MQTT Access (VPC Only)
+   gcloud compute firewall-rules create allow-internal-mqtt \
+     --allow tcp:1883 --source-ranges=10.128.0.0/9 --target-tags=mqtt-broker
+   ```
+
+### 🔒 Nginx Reverse Proxy & SSL Termination
 
 The frontend container uses **Nginx** providing critical security:
 
 | Security Feature | Description |
 |-----------------|-------------|
+| **SSL/TLS** | Auto-renewing **Let's Encrypt** certificates via Certbot sidecar |
+| **HTTPS Redirect** | Forces all HTTP traffic to HTTPS (Port 80 → 443) |
 | **API Proxying** | Routes `/api/` to backend, hiding server topology |
 | **Security Headers** | Enforces `X-Frame-Options`, `X-XSS-Protection` |
-| **Static Caching** | Caches React assets for 1 year |
-| **SPA Routing** | Handles client-side routing |
 
-**Nginx Configuration Snippet:**
+**Nginx Configuration Snippet (HTTPS):**
 ```nginx
 server {
-    listen 80;
-    
-    # Security Headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
+    listen 443 ssl;
+    server_name 35.x.x.x.nip.io; # Magic Domain
+
+    # SSL Certificates (Managed by Certbot)
+    ssl_certificate /etc/letsencrypt/live/.../fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/.../privkey.pem;
+
+    # Proxy API Securely
     location /api/ {
         proxy_pass http://backend:8000/api/;
     }
 }
 ```
 
+### 🛡️ Defense-in-Depth Security Layers
+
+Beyond HTTPS, the system implements multiple layers of security:
+
+| Layer | Implementation | Benefit |
+|-------|----------------|---------|
+| **Biometric** | **Multi-Shot Face Recognition** | Uses averaged 128-d embeddings from 5+ images to prevent spoofing. |
+| **Network** | **Zero-Trust Isolation** | Docker containers (Backend/Mongo) connect on a private bridge network `chemlab-network`. They do not map ports to the host interface, making them **invisible** to the outside world. |
+| **Transport** | **End-to-End Encryption** | HTTPS for web traffic; Local VPC routing for MQTT. |
+| **Physical** | **Fail-Secure Locking** | Door servo defaults to "Locked" state; auto-locks after 15s. |
+| **Audit** | **Immutable Access Logs** | Every access attempt (Grant/Deny) is logged to Supabase with timestamp & snapshot. |
+
 ### Docker Architecture
 
-```
+```mermaid
 ┌─────────────────────────────────────────────────────────────┐
 │                    GCP Cloud Infrastructure                  │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────┐      ┌─────────────────────┐       │
 │  │  Frontend VM        │      │  Backend VM          │       │
 │  │  (Nginx + React)    │      │  (FastAPI + dlib)    │       │
-│  │  Port 80 (Public)   │──────│  Port 8000 (Internal)│       │
+│  │  Port 443 (HTTPS)   │──────│  Port 8000 (Internal)│       │
 │  │                     │ 10.x │                      │       │
 │  │  /api/* → proxy ────┼──────┼──→ Backend API       │       │
 │  │  /ws   → proxy ─────┼──────┼──→ WebSocket         │       │
 │  └─────────────────────┘      └─────────────────────┘       │
 └─────────────────────────────────────────────────────────────┘
-            ▲                            ▲
+            ▲ (Encrypted)                ▲
      Browser/Mobile              Raspberry Pi (MQTT)
 ```
 
@@ -410,6 +476,14 @@ MQTT_PORT=1883
 ```env
 VITE_API_URL=http://<backend-ip>:8000
 VITE_WS_URL=ws://<backend-ip>:8000/ws
+```
+
+**For HTTPS Production:**
+Leave variables **EMPTY**. The frontend auto-detects `https://` and upgrades to `wss://` automatically.
+```env
+# Leave commented out for auto-detection
+# VITE_API_URL=
+# VITE_WS_URL=
 ```
 
 ---
